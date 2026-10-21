@@ -7,6 +7,7 @@
 package lettering
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,8 +18,10 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 
+	"github.com/phpandrew/TSG-Embroidery-Pro/internal/density"
 	"github.com/phpandrew/TSG-Embroidery-Pro/internal/dst"
 	"github.com/phpandrew/TSG-Embroidery-Pro/internal/pattern"
 	"github.com/phpandrew/TSG-Embroidery-Pro/internal/stitchgen"
@@ -26,13 +29,17 @@ import (
 
 // Spec describes a piece of lettering.
 type Spec struct {
-	Text      string  `json:"text"`
-	Font      string  `json:"font"`
-	Height    float64 `json:"height"`    // cap height, 0.1 mm
-	Spacing   float64 `json:"spacing"`   // extra letter spacing, 0.1 mm
-	Weight    float64 `json:"weight"`    // stroke width as % of height (built-in font), default 17
-	Density   float64 `json:"density"`   // satin spacing, 0.1 mm, default 4
-	TrimAbove float64 `json:"trimAbove"` // trim jumps longer than this, 0.1 mm, default 40
+	Text         string  `json:"text"`
+	Font         string  `json:"font"`
+	Height       float64 `json:"height"`                 // cap height, 0.1 mm
+	Spacing      float64 `json:"spacing"`                // extra letter spacing, 0.1 mm
+	Weight       float64 `json:"weight"`                 // stroke width as % of height (built-in font), default 17
+	Density      float64 `json:"density"`                // satin spacing, 0.1 mm, default 4
+	Style        string  `json:"style,omitempty"`        // installed fonts: fill | fill+outline | satin | run
+	FillAngle    float64 `json:"fillAngle,omitempty"`    // installed fonts: fill direction, degrees
+	OutlineWidth float64 `json:"outlineWidth,omitempty"` // installed fonts: satin border width, 0.1 mm
+	DensityPct   float64 `json:"densityPct"`             // digitized fonts: % of native density (default 100)
+	TrimAbove    float64 `json:"trimAbove"`              // trim jumps longer than this, 0.1 mm, default 40
 }
 
 // Font produces glyph stitches at a requested height.
@@ -47,6 +54,7 @@ type Font interface {
 
 // Registry holds the available fonts by name.
 type Registry struct {
+	mu    sync.RWMutex
 	fonts map[string]Font
 }
 
@@ -81,38 +89,94 @@ func (r *Registry) LoadFS(fsys fs.FS) []error {
 		if _, err := fs.Stat(fsys, path.Join(e.Name(), "font.json")); err != nil {
 			continue
 		}
-		f, err := LoadGlyphFontFS(fsys, e.Name())
+		var f Font
+		raw, rerr := fs.ReadFile(fsys, path.Join(e.Name(), "font.json"))
+		if rerr == nil && bytes.Contains(raw, []byte(`"`+PackedFormat+`"`)) {
+			f, err = loadPackedFont(fsys, e.Name(), raw)
+		} else {
+			f, err = LoadGlyphFontFS(fsys, e.Name())
+		}
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", e.Name(), err))
 			continue
 		}
+		r.mu.Lock()
 		r.fonts[strings.ToLower(f.Name())] = f
+		r.mu.Unlock()
 	}
 	return errs
 }
 
 // FontInfo is a font listing entry.
 type FontInfo struct {
-	Name   string  `json:"name"`
-	Native float64 `json:"native"` // digitized height in 0.1 mm, 0 = scalable
+	Name        string   `json:"name"`
+	Native      float64  `json:"native"` // digitized cap height in 0.1 mm, 0 = scalable
+	MinHeight   float64  `json:"minHeight,omitempty"`
+	MaxHeight   float64  `json:"maxHeight,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Keywords    []string `json:"keywords,omitempty"`
+	License     string   `json:"license,omitempty"`
+	Source      string   `json:"source,omitempty"`
+	Colors      []string `json:"colors,omitempty"`
+	Kind        string   `json:"kind"` // built-in | digitized
 }
 
 func (r *Registry) List() []FontInfo {
-	var out []FontInfo
+	out := []FontInfo{}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	for _, f := range r.fonts {
-		out = append(out, FontInfo{Name: f.Name(), Native: f.Native()})
+		fi := FontInfo{Name: f.Name(), Native: f.Native(), Kind: "digitized"}
+		if _, ok := f.(blockFont); ok {
+			fi.Kind = "built-in"
+			fi.Description = "Built-in satin block letters, any size from about 8 mm"
+		}
+		if sr, ok := f.(scaleRange); ok && fi.Native > 0 {
+			lo, hi := sr.ScaleRange()
+			fi.MinHeight, fi.MaxHeight = fi.Native*lo, fi.Native*hi
+		}
+		if _, ok := f.(*sysFont); ok {
+			fi.Kind = "windows"
+			fi.Description = "Installed font, auto-digitized (fill by default)"
+		}
+		if pf, ok := f.(*packedFont); ok {
+			fi.Description = pf.meta.Description
+			fi.Keywords = pf.meta.Keywords
+			fi.License = pf.meta.License
+			fi.Source = pf.meta.Source
+			if len(pf.meta.Colors) > 1 {
+				fi.Colors = pf.meta.Colors
+			}
+		}
+		out = append(out, fi)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
 	return out
 }
 
 func (r *Registry) Get(name string) (Font, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	f, ok := r.fonts[strings.ToLower(name)]
 	return f, ok
 }
 
+// Optional font capabilities.
+type (
+	kerner     interface{ Kern(prev, cur rune) float64 }
+	wordSpacer interface{ WordSpace() float64 }
+	scaleRange interface{ ScaleRange() (float64, float64) }
+	caser      interface{ Case() string }
+	colorer    interface{ Colors() []string }
+)
+
 // Result is laid-out text, centred on 0,0.
 type Result struct {
+	// Blocks holds one stitch list per thread colour (multi-colour fonts
+	// sew colour 1 for every letter, then colour 2, ...).
+	Blocks [][]pattern.St
+	Colors []string // suggested thread colours per block (may be empty)
+	// Stitches is all blocks joined by ColorChange records.
 	Stitches []pattern.St
 	Missing  []string // characters the font has no glyph for
 	Warning  string
@@ -126,6 +190,9 @@ func (r *Registry) Layout(s Spec) (Result, error) {
 	}
 	if s.Height <= 0 {
 		s.Height = 180
+		if n := f.Native(); n > 0 {
+			s.Height = n
+		}
 	}
 	if s.TrimAbove <= 0 {
 		s.TrimAbove = 40
@@ -134,53 +201,140 @@ func (r *Registry) Layout(s Spec) (Result, error) {
 	if text == "" {
 		return Result{}, errors.New("lettering: text is empty")
 	}
+	if c, ok := f.(caser); ok {
+		switch c.Case() {
+		case "upper":
+			text = strings.ToUpper(text)
+		case "lower":
+			text = strings.ToLower(text)
+		}
+	}
 	var res Result
+	k := 1.0
 	if n := f.Native(); n > 0 {
-		ratio := s.Height / n
-		if ratio < 0.8 || ratio > 1.2 {
-			res.Warning = fmt.Sprintf("%s was digitized at %.1f mm; %.0f%% scaling may sew poorly", f.Name(), n/10, ratio*100)
+		k = s.Height / n
+		lo, hi := 0.8, 1.2
+		if sr, ok := f.(scaleRange); ok {
+			lo, hi = sr.ScaleRange()
+		}
+		if k < lo-1e-9 || k > hi+1e-9 {
+			res.Warning = fmt.Sprintf("%s is designed for %.0f–%.0f mm; %.1f mm may sew poorly", f.Name(), n*lo/10, n*hi/10, s.Height/10)
 		}
 	}
 	if s.Height < 50 {
 		res.Warning = "Lettering under 5 mm usually sews poorly"
 	}
-	var all []pattern.St
+	if c, ok := f.(colorer); ok {
+		res.Colors = c.Colors()
+	}
+	var blocks [][]pattern.St
 	penX := 0.0
+	var prev rune
 	missing := map[rune]bool{}
 	for _, ch := range text {
 		if ch == ' ' {
-			penX += s.Height*0.35 + s.Spacing
+			if ws, ok := f.(wordSpacer); ok && ws.WordSpace() > 0 {
+				penX += ws.WordSpace()*k + s.Spacing
+			} else {
+				penX += s.Height*0.35 + s.Spacing
+			}
+			prev = 0
 			continue
 		}
 		g, adv, ok := f.Glyph(ch, s)
 		if !ok {
 			missing[ch] = true
 			penX += s.Height * 0.3
+			prev = 0
 			continue
 		}
-		for _, st := range g {
-			st.X += penX
-			all = append(all, st)
+		if kn, ok := f.(kerner); ok && prev != 0 {
+			penX -= kn.Kern(prev, ch) * k
+		} else if sf, ok := f.(*sysFont); ok && prev != 0 {
+			penX -= sf.kernAt(prev, ch, s.Height)
 		}
+		// split the glyph by colour; colour i of every letter goes to block i
+		ci := 0
+		var seg []pattern.St
+		flush := func() {
+			if pattern.Count(seg).Stitches == 0 {
+				seg = nil
+				return
+			}
+			for len(blocks) <= ci {
+				blocks = append(blocks, nil)
+			}
+			if seg[0].Cmd == pattern.Stitch {
+				seg = append([]pattern.St{{X: seg[0].X, Y: seg[0].Y, Cmd: pattern.Jump}}, seg...)
+			}
+			blocks[ci] = append(blocks[ci], seg...)
+			seg = nil
+		}
+		for _, st := range g {
+			if st.Cmd == pattern.ColorChange || st.Cmd == pattern.Stop {
+				flush()
+				ci++
+				continue
+			}
+			if st.Cmd == pattern.Stitch || st.Cmd == pattern.Jump {
+				st.X += penX
+			}
+			seg = append(seg, st)
+		}
+		flush()
 		penX += adv + s.Spacing
+		prev = ch
 	}
 	for ch := range missing {
 		res.Missing = append(res.Missing, string(ch))
 	}
 	sort.Strings(res.Missing)
-	if len(all) == 0 {
+	// Digitized fonts are scaled, not regenerated: stitches spread out when
+	// enlarged and bunch up when reduced. Rebuild satins/fills so density
+	// matches the font's native density (times the user's density %).
+	if _, isBlock := f.(blockFont); !isBlock && f.Native() > 0 {
+		factor := k
+		if s.DensityPct > 0 {
+			factor *= s.DensityPct / 100
+		}
+		if math.Abs(factor-1) > 0.03 {
+			for i := range blocks {
+				blocks[i], _ = density.Adjust(blocks[i], density.Options{Factor: factor})
+			}
+		}
+	}
+	all := pattern.EmptyRect()
+	for i := range blocks {
+		blocks[i] = connect(blocks[i], s.TrimAbove)
+		all.Union(pattern.Bounds(blocks[i]))
+	}
+	var nonEmpty [][]pattern.St
+	for _, b := range blocks {
+		if pattern.Count(b).Stitches > 0 {
+			nonEmpty = append(nonEmpty, b)
+		}
+	}
+	if len(nonEmpty) == 0 {
 		return res, errors.New("lettering: no printable glyphs")
 	}
-	all = connect(all, s.TrimAbove)
-	b := pattern.Bounds(all)
-	cx, cy := b.CenterX(), b.CenterY()
-	for i := range all {
-		all[i].X -= cx
-		all[i].Y -= cy
+	cx, cy := all.CenterX(), all.CenterY()
+	for bi, b := range nonEmpty {
+		for i := range b {
+			if b[i].Cmd == pattern.Stitch || b[i].Cmd == pattern.Jump {
+				b[i].X -= cx
+				b[i].Y -= cy
+			}
+		}
+		if bi > 0 {
+			res.Stitches = append(res.Stitches, pattern.St{Cmd: pattern.ColorChange})
+		}
+		res.Stitches = append(res.Stitches, b...)
 	}
-	res.Stitches = all
+	res.Blocks = nonEmpty
 	return res, nil
 }
+
+func sortStrings(s []string) { sort.Strings(s) }
 
 // connect inserts trims (with tie-off / tie-in) on jumps longer than trimAbove.
 func connect(sts []pattern.St, trimAbove float64) []pattern.St {

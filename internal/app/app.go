@@ -4,9 +4,11 @@ package app
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image/color"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -18,6 +20,7 @@ import (
 	"github.com/phpandrew/TSG-Embroidery-Pro/internal/applog"
 	"github.com/phpandrew/TSG-Embroidery-Pro/internal/document"
 	"github.com/phpandrew/TSG-Embroidery-Pro/internal/lettering"
+	"github.com/phpandrew/TSG-Embroidery-Pro/internal/preview"
 	"github.com/phpandrew/TSG-Embroidery-Pro/internal/updater"
 	"github.com/phpandrew/TSG-Embroidery-Pro/internal/version"
 )
@@ -36,11 +39,12 @@ type UI interface {
 
 // Prefs are per-user app preferences (not saved in projects).
 type Prefs struct {
-	AutoCheckUpdates bool   `json:"autoCheckUpdates"`
-	Prerelease       bool   `json:"prerelease"`
-	LastCheck        int64  `json:"lastCheck"`
-	LastOpenDir      string `json:"lastOpenDir"` // folder of the last opened/merged file
-	LastSaveDir      string `json:"lastSaveDir"` // folder of the last save/export
+	AutoCheckUpdates bool     `json:"autoCheckUpdates"`
+	Prerelease       bool     `json:"prerelease"`
+	LastCheck        int64    `json:"lastCheck"`
+	LastOpenDir      string   `json:"lastOpenDir"` // folder of the last opened/merged file
+	LastSaveDir      string   `json:"lastSaveDir"` // folder of the last save/export
+	FavoriteFonts    []string `json:"favoriteFonts"`
 }
 
 // App is bound to the frontend.
@@ -82,6 +86,14 @@ func New(ui UI) *App {
 		cfgDir: cfg,
 	}
 	a.loadPrefs()
+	// installed TrueType/OpenType fonts: names only, outlines load on use
+	go func() {
+		n := fonts.LoadSystemFonts(lettering.SystemFontDirs())
+		applog.Infof("found %d installed fonts", n)
+		if a.ui != nil {
+			a.ui.Emit("fonts:changed", n)
+		}
+	}()
 	return a
 }
 
@@ -391,6 +403,62 @@ func (a *App) UpdateLettering(id string, spec lettering.Spec) (LetteringResult, 
 	return LetteringResult{v, id, warn}, err
 }
 
+// ---- font gallery --------------------------------------------------------
+
+// Fonts lists every lettering font with metadata for the gallery.
+func (a *App) Fonts() []lettering.FontInfo { return a.ed.Fonts.List() }
+
+// FontPreview renders text in a font at its native size to a PNG data URL.
+func (a *App) FontPreview(font, text string, width, height int) (string, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		text = "Abc 123"
+	}
+	if len([]rune(text)) > 40 {
+		text = string([]rune(text)[:40])
+	}
+	width = min(max(width, 80), 1600)
+	height = min(max(height, 30), 800)
+	res, err := a.ed.Fonts.Layout(lettering.Spec{Text: text, Font: font})
+	if err != nil {
+		return "", err
+	}
+	var cols []color.RGBA
+	for _, c := range res.Colors {
+		cols = append(cols, preview.ParseHex(c))
+	}
+	if len(cols) < 2 { // single-colour fonts preview in navy
+		cols = nil
+	}
+	png, err := preview.PNG(res.Blocks, cols, width, height)
+	if err != nil {
+		return "", err
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(png), nil
+}
+
+// ToggleFavoriteFont adds or removes a font from favourites.
+func (a *App) ToggleFavoriteFont(name string) Prefs {
+	a.prefsMu.Lock()
+	favs := []string{}
+	found := false
+	for _, f := range a.prefs.FavoriteFonts {
+		if f == name {
+			found = true
+			continue
+		}
+		favs = append(favs, f)
+	}
+	if !found {
+		favs = append(favs, name)
+	}
+	a.prefs.FavoriteFonts = favs
+	p := a.prefs
+	a.prefsMu.Unlock()
+	a.savePrefs()
+	return p
+}
+
 // ---- updates -------------------------------------------------------------
 
 // CheckForUpdates queries GitHub. Returns nil when up to date.
@@ -448,6 +516,9 @@ func (a *App) SetPrefs(p Prefs) Prefs {
 	a.prefsMu.Lock()
 	p.LastCheck = a.prefs.LastCheck
 	p.LastOpenDir, p.LastSaveDir = a.prefs.LastOpenDir, a.prefs.LastSaveDir
+	if p.FavoriteFonts == nil {
+		p.FavoriteFonts = a.prefs.FavoriteFonts
+	}
 	a.prefs = p
 	a.prefsMu.Unlock()
 	a.savePrefs()

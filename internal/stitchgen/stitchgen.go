@@ -267,6 +267,12 @@ type FillOptions struct {
 // Fill generates a tatami fill for a closed polygon. Concave shapes are
 // split into regions joined by jumps.
 func Fill(poly []Pt, o FillOptions) []pattern.St {
+	return FillShapes([][]Pt{poly}, o)
+}
+
+// FillShapes fills several closed contours with the even-odd rule, so inner
+// contours become holes (the counters of O, A, B…).
+func FillShapes(shapes [][]Pt, o FillOptions) []pattern.St {
 	if o.Spacing <= 0 {
 		o.Spacing = 4
 	}
@@ -275,35 +281,77 @@ func Fill(poly []Pt, o FillOptions) []pattern.St {
 	}
 	var out []pattern.St
 	if o.Underlay {
-		out = append(out, fillRows(poly, o.Angle+90, 30, 30, 0, 0)...)
+		out = append(out, fillRows(shapes, o.Angle+90, 30, 30, 0, 0)...)
 	}
-	out = append(out, fillRows(poly, o.Angle, o.Spacing, o.StitchLen, 3, 1)...)
+	top := fillRows(shapes, o.Angle, o.Spacing, o.StitchLen, 3, 1)
+	// join underlay to cover with a hidden travel run when it stays inside
+	if n := len(out); n > 0 && len(top) > 1 && top[0].Cmd == pattern.Jump {
+		from := Pt{out[n-1].X, out[n-1].Y}
+		to := Pt{top[0].X, top[0].Y}
+		if segmentInside(shapes, from, to) {
+			for _, t := range Resample([]Pt{from, to}, 20)[1:] {
+				out = append(out, st(t, pattern.Stitch))
+			}
+			top = top[2:] // drop the jump and its landing stitch
+		}
+	}
+	out = append(out, top...)
 	return out
+}
+
+// segmentInside reports whether the straight line a→b stays inside the
+// shapes (even-odd), sampled every 0.5 mm.
+func segmentInside(shapes [][]Pt, a, b Pt) bool {
+	in := func(p Pt) bool {
+		res := false
+		for _, rp := range shapes {
+			for i := range rp {
+				c, d := rp[i], rp[(i+1)%len(rp)]
+				if (c.Y > p.Y) != (d.Y > p.Y) && p.X < c.X+(p.Y-c.Y)/(d.Y-c.Y)*(d.X-c.X) {
+					res = !res
+				}
+			}
+		}
+		return res
+	}
+	n := int(dist(a, b)/5) + 1
+	for i := 1; i < n; i++ {
+		if !in(lerp(a, b, float64(i)/float64(n))) {
+			return false
+		}
+	}
+	return true
 }
 
 // fillRows does the scan-line work. stagger is the number of rows in the
 // brick pattern; inset trims row ends so the fill sits inside the outline.
-func fillRows(poly []Pt, angle, spacing, stitchLen float64, stagger int, inset float64) []pattern.St {
+func fillRows(shapes [][]Pt, angle, spacing, stitchLen float64, stagger int, inset float64) []pattern.St {
 	rad := angle * math.Pi / 180
 	cos, sin := math.Cos(rad), math.Sin(rad)
 	rot := func(p Pt) Pt { return Pt{p.X*cos + p.Y*sin, -p.X*sin + p.Y*cos} }
 	unrot := func(p Pt) Pt { return Pt{p.X*cos - p.Y*sin, p.X*sin + p.Y*cos} }
-	rp := make([]Pt, len(poly))
+	rshapes := make([][]Pt, len(shapes))
 	minY, maxY := math.Inf(1), math.Inf(-1)
-	for i, p := range poly {
-		rp[i] = rot(p)
-		minY = math.Min(minY, rp[i].Y)
-		maxY = math.Max(maxY, rp[i].Y)
+	for si, poly := range shapes {
+		rp := make([]Pt, len(poly))
+		for i, p := range poly {
+			rp[i] = rot(p)
+			minY = math.Min(minY, rp[i].Y)
+			maxY = math.Max(maxY, rp[i].Y)
+		}
+		rshapes[si] = rp
 	}
 	type seg struct{ a, b float64 }
 	var rows [][]seg
 	var ys []float64
 	for y := minY + spacing/2; y < maxY; y += spacing {
 		var xs []float64
-		for i := range rp {
-			a, b := rp[i], rp[(i+1)%len(rp)]
-			if (a.Y <= y && b.Y > y) || (b.Y <= y && a.Y > y) {
-				xs = append(xs, a.X+(y-a.Y)/(b.Y-a.Y)*(b.X-a.X))
+		for _, rp := range rshapes {
+			for i := range rp {
+				a, b := rp[i], rp[(i+1)%len(rp)]
+				if (a.Y <= y && b.Y > y) || (b.Y <= y && a.Y > y) {
+					xs = append(xs, a.X+(y-a.Y)/(b.Y-a.Y)*(b.X-a.X))
+				}
 			}
 		}
 		sort.Float64s(xs)
@@ -316,40 +364,156 @@ func fillRows(poly []Pt, angle, spacing, stitchLen float64, stagger int, inset f
 		rows = append(rows, row)
 		ys = append(ys, y)
 	}
-	// group into regions: segment k of consecutive rows with equal count
+	// Group row segments into regions: a segment continues a region when it
+	// overlaps exactly one segment of the previous row, and that segment
+	// overlaps only it (simple boustrophedon decomposition).
 	type region struct {
 		rows []int
 		segs []seg
 	}
 	var regions []region
-	open := map[int]int{} // seg index -> region index
-	prevCount := -1
+	overlaps := func(p, q seg) bool { return p.a < q.b && q.a < p.b }
+	var prevRow []seg
+	var prevReg []int
 	for ri, row := range rows {
-		if len(row) != prevCount {
-			open = map[int]int{}
-		}
-		for k, s := range row {
-			idx, ok := open[k]
-			if !ok {
-				regions = append(regions, region{})
-				idx = len(regions) - 1
-				open[k] = idx
+		curReg := make([]int, len(row))
+		for k, sg := range row {
+			cands := []int{}
+			for pk, ps := range prevRow {
+				if overlaps(ps, sg) {
+					cands = append(cands, pk)
+				}
 			}
-			regions[idx].rows = append(regions[idx].rows, ri)
-			regions[idx].segs = append(regions[idx].segs, s)
+			cont := -1
+			if len(cands) == 1 {
+				n := 0
+				for _, s2 := range row {
+					if overlaps(prevRow[cands[0]], s2) {
+						n++
+					}
+				}
+				if n == 1 {
+					cont = prevReg[cands[0]]
+				}
+			}
+			if cont < 0 {
+				regions = append(regions, region{})
+				cont = len(regions) - 1
+			}
+			regions[cont].rows = append(regions[cont].rows, ri)
+			regions[cont].segs = append(regions[cont].segs, sg)
+			curReg[k] = cont
 		}
-		prevCount = len(row)
+		prevRow, prevReg = row, curReg
 	}
+
+	// even-odd point-in-shape test in rotated space (for travel stitches)
+	inside := func(p Pt) bool {
+		in := false
+		for _, rp := range rshapes {
+			for i := range rp {
+				a, b := rp[i], rp[(i+1)%len(rp)]
+				if (a.Y > p.Y) != (b.Y > p.Y) && p.X < a.X+(p.Y-a.Y)/(b.Y-a.Y)*(b.X-a.X) {
+					in = !in
+				}
+			}
+		}
+		return in
+	}
+	travelInside := func(a, b Pt) bool {
+		d := math.Hypot(b.X-a.X, b.Y-a.Y)
+		n := int(d/5) + 1
+		for i := 1; i < n; i++ {
+			t := float64(i) / float64(n)
+			if !inside(Pt{a.X + (b.X-a.X)*t, a.Y + (b.Y-a.Y)*t}) {
+				return false
+			}
+		}
+		return true
+	}
+
+	// row endpoints for a region sewn from corner c (0..3):
+	// bit0 = start from last row, bit1 = first row runs right-to-left
+	corner := func(rg region, c int) (Pt, Pt) {
+		ri := 0
+		if c&1 == 1 {
+			ri = len(rg.rows) - 1
+		}
+		sg, y := rg.segs[ri], ys[rg.rows[ri]]
+		startX := sg.a
+		if c&2 == 2 {
+			startX = sg.b
+		}
+		n := len(rg.rows)
+		li := n - 1
+		if c&1 == 1 {
+			li = 0
+		}
+		lsg, ly := rg.segs[li], ys[rg.rows[li]]
+		// direction of the last row alternates from the first
+		rightToLeft := c&2 == 2
+		if (n-1)%2 == 1 {
+			rightToLeft = !rightToLeft
+		}
+		endX := lsg.b
+		if rightToLeft {
+			endX = lsg.a
+		}
+		return Pt{startX, y}, Pt{endX, ly}
+	}
+
 	var out []pattern.St
-	for _, rg := range regions {
-		first := true
-		for i, ri := range rg.rows {
-			s := rg.segs[i]
+	done := make([]bool, len(regions))
+	var pos Pt
+	havePos := false
+	for range regions {
+		best, bestC, bestD := -1, 0, math.Inf(1)
+		for i, rg := range regions {
+			if done[i] {
+				continue
+			}
+			for c := 0; c < 4; c++ {
+				sp, _ := corner(rg, c)
+				d := 0.0
+				if havePos {
+					d = math.Hypot(sp.X-pos.X, sp.Y-pos.Y)
+				} else {
+					d = sp.Y*1e-3 + sp.X*1e-6 + float64(i) // first region: topmost
+				}
+				if d < bestD {
+					best, bestC, bestD = i, c, d
+				}
+			}
+		}
+		done[best] = true
+		rg := regions[best]
+		order := make([]int, len(rg.rows))
+		for i := range order {
+			order[i] = i
+		}
+		if bestC&1 == 1 {
+			for l, r := 0, len(order)-1; l < r; l, r = l+1, r-1 {
+				order[l], order[r] = order[r], order[l]
+			}
+		}
+		sp, ep := corner(rg, bestC)
+		// connect from the previous region
+		if havePos && travelInside(pos, sp) {
+			for _, t := range Resample([]Pt{pos, sp}, 20)[1:] {
+				out = append(out, st(unrot(t), pattern.Stitch))
+			}
+		} else {
+			out = append(out, st(unrot(sp), pattern.Jump), st(unrot(sp), pattern.Stitch))
+		}
+		rtl := bestC&2 == 2
+		for _, idx := range order {
+			sg, ri := rg.segs[idx], rg.rows[idx]
 			y := ys[ri]
-			a, b := s.a, s.b
-			if i%2 == 1 {
+			a, b := sg.a, sg.b
+			if rtl {
 				a, b = b, a
 			}
+			rtl = !rtl
 			pts := []Pt{{a, y}}
 			// brick offset: stitch points on a grid shifted per row
 			phase := 0.0
@@ -358,8 +522,8 @@ func fillRows(poly []Pt, angle, spacing, stitchLen float64, stagger int, inset f
 			}
 			lo, hi := math.Min(a, b), math.Max(a, b)
 			var mids []float64
-			start := math.Floor((lo-phase)/stitchLen)*stitchLen + phase + stitchLen
-			for x := start; x < hi-stitchLen*0.3; x += stitchLen {
+			startX := math.Floor((lo-phase)/stitchLen)*stitchLen + phase + stitchLen
+			for x := startX; x < hi-stitchLen*0.3; x += stitchLen {
 				if x-lo > stitchLen*0.3 {
 					mids = append(mids, x)
 				}
@@ -373,18 +537,11 @@ func fillRows(poly []Pt, angle, spacing, stitchLen float64, stagger int, inset f
 				pts = append(pts, Pt{x, y})
 			}
 			pts = append(pts, Pt{b, y})
-			for j, p := range pts {
-				c := pattern.Stitch
-				if first && j == 0 {
-					c = pattern.Jump
-				}
-				out = append(out, st(unrot(p), c))
+			for _, p := range pts {
+				out = append(out, st(unrot(p), pattern.Stitch))
 			}
-			if first {
-				out = append(out, st(unrot(pts[0]), pattern.Stitch))
-			}
-			first = false
 		}
+		pos, havePos = ep, true
 	}
 	return out
 }

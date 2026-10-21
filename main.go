@@ -62,10 +62,14 @@ func (u *wailsUI) Confirm(title, msg string) bool {
 	return err == nil && strings.EqualFold(r, "Yes")
 }
 
-func (u *wailsUI) Emit(ev string, data any) { wr.EventsEmit(u.ctx, ev, data) }
-func (u *wailsUI) SetTitle(t string)        { wr.WindowSetTitle(u.ctx, t) }
-func (u *wailsUI) OpenURL(url string)       { wr.BrowserOpenURL(u.ctx, url) }
-func (u *wailsUI) Quit()                    { wr.Quit(u.ctx) }
+func (u *wailsUI) Emit(ev string, data any) {
+	if u.ctx != nil { // events before the window exists are dropped
+		wr.EventsEmit(u.ctx, ev, data)
+	}
+}
+func (u *wailsUI) SetTitle(t string)  { wr.WindowSetTitle(u.ctx, t) }
+func (u *wailsUI) OpenURL(url string) { wr.BrowserOpenURL(u.ctx, url) }
+func (u *wailsUI) Quit()              { wr.Quit(u.ctx) }
 
 func buildMenu(emit func(string)) *menu.Menu {
 	m := menu.NewMenu()

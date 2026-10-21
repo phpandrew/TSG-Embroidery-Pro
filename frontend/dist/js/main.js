@@ -596,6 +596,7 @@ on('files:dropped', async paths => {
   }
 });
 on('update:available', rel => showUpdate(rel));
+on('fonts:changed', () => api.State().then(v => apply(v)));
 
 // ---------------------------------------------------------------- keyboard
 document.addEventListener('keydown', e => {

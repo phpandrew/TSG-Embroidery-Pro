@@ -7,6 +7,7 @@ toolchain go1.26.10
 require (
 	github.com/minio/selfupdate v0.6.0
 	github.com/wailsapp/wails/v2 v2.17.0
+	golang.org/x/image v0.47.0
 	golang.org/x/mod v0.42.0
 )
 

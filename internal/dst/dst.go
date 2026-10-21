@@ -338,3 +338,23 @@ func (h Header) HeaderInt(key string, def int) int {
 	}
 	return v
 }
+
+// EncodeRecords encodes sts as bare DST records (no 512-byte header, with a
+// trailing End record). Used to pack many small stitch lists compactly.
+func EncodeRecords(sts []pattern.St) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := Write(&buf, sts, WriteOptions{TrimJumps: 3}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes()[HeaderSize:], nil
+}
+
+// DecodeRecords reverses EncodeRecords (jump runs are kept verbatim).
+func DecodeRecords(recs []byte) ([]pattern.St, error) {
+	head := bytes.Repeat([]byte{' '}, HeaderSize)
+	p, _, err := Read(io.MultiReader(bytes.NewReader(head), bytes.NewReader(recs)))
+	if err != nil {
+		return nil, err
+	}
+	return p.Stitches, nil
+}

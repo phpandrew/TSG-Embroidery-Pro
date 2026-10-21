@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { icon } from './icons.js';
 import { esc, fmt, mm, numField, toast } from './ui.js';
 import { S, run, selected, setTab, renderPropsPanel, redraw, actions } from './main.js';
+import { openFontGallery, isFavourite, loadFavourites } from './fontgallery.js';
 
 export function renderProps(root) {
   root.innerHTML = '';
@@ -226,14 +227,26 @@ function letteringPanel(root) {
   const spec = editing ? d.lettering : (S.lastSpec || { text: '', font: 'Block', height: 180, spacing: 0, weight: 17, density: 4 });
   const v = S.view;
   const s = section(root, editing ? `Edit “${d.name}”` : 'New lettering');
-  const fontOpts = v.fonts.map(f => `<option value="${esc(f.name)}">${esc(f.name)}${f.native ? ` (digitized ${(f.native / 10).toFixed(0)} mm)` : ' (built-in)'}</option>`).join('');
+  const opt = f => `<option value="${esc(f.name)}">${esc(f.name)}${f.native ? ` — ${(f.native / 10).toFixed(0)} mm` : f.kind === 'windows' ? ' (Windows)' : ' (built-in)'}</option>`;
+  const favs = v.fonts.filter(f => isFavourite(f.name));
+  const fontOpts = (favs.length ? `<optgroup label="★ Favourites">${favs.map(opt).join('')}</optgroup><optgroup label="All fonts">` : '') +
+    v.fonts.map(opt).join('') + (favs.length ? '</optgroup>' : '');
   const thrOpts = v.threads.map(t => `<option value="${t.id}">${esc(t.name)} — needle ${t.needle}</option>`).join('');
   s.insertAdjacentHTML('beforeend', `<div class="form">
     <label class="f">Text<input class="inp" id="lt-text" value="${esc(spec.text)}" placeholder="e.g. ANDREW" maxlength="200"></label>
-    <label class="f">Font<select class="inp" id="lt-font">${fontOpts}</select></label>
+    <label class="f">Font<div class="font-row"><select class="inp" id="lt-font">${fontOpts}</select>
+      <button type="button" class="btn btn-ghost btn-sm" id="lt-browse" style="height:38px">${icon('grid', 15)} Browse…</button></div></label>
     <div class="two">
       <label class="f">Cap height (mm)<input class="inp" id="lt-h" type="number" step="0.5" min="3" max="300" value="${(spec.height / 10).toFixed(1)}"></label>
       <label class="f">Letter spacing (mm)<input class="inp" id="lt-sp" type="number" step="0.1" value="${((spec.spacing || 0) / 10).toFixed(1)}"></label>
+    </div>
+    <div class="two sys-only">
+      <label class="f">Style<select class="inp" id="lt-style">
+        <option value="fill">Fill (tatami)</option>
+        <option value="fill+outline">Fill + satin outline</option>
+        <option value="satin">Satin outline only</option>
+        <option value="run">Running outline only</option></select></label>
+      <label class="f">Fill angle (°)<input class="inp" id="lt-angle" type="number" step="5" min="-90" max="90" value="${spec.fillAngle ?? 45}"></label>
     </div>
     <div class="two">
       <label class="f">Stroke weight (% of height)<input class="inp" id="lt-w" type="number" step="1" min="6" max="30" value="${spec.weight || 17}"></label>
@@ -244,7 +257,33 @@ function letteringPanel(root) {
       ${editing ? '<button class="btn btn-primary btn-sm" id="lt-update">Update lettering</button><button class="btn btn-ghost btn-sm" id="lt-add">Add as new</button>' : '<button class="btn btn-primary btn-sm" id="lt-add">Add to design</button>'}
     </div>
   </div>`);
-  s.querySelector('#lt-font').value = spec.font || 'Block';
+  const fontSel = s.querySelector('#lt-font');
+  fontSel.value = spec.font || 'Block';
+  const applyFont = name => {
+    const f = v.fonts.find(x => x.name === name);
+    fontSel.value = name;
+    // digitized fonts sew best at their own size
+    if (f && f.native) s.querySelector('#lt-h').value = (f.native / 10).toFixed(1);
+    showFor(f);
+  };
+  fontSel.onchange = () => applyFont(fontSel.value);
+  // show only the settings that apply to the chosen kind of font
+  function showFor(f) {
+    const kind = f ? f.kind : 'built-in';
+    s.querySelector('#lt-w').closest('label').style.display = kind === 'built-in' ? '' : 'none';
+    s.querySelector('#lt-den').closest('label').style.display = kind === 'digitized' ? 'none' : '';
+    s.querySelector('.sys-only').style.display = kind === 'windows' ? '' : 'none';
+  }
+  s.querySelector('#lt-style').value = spec.style || 'fill';
+  showFor(v.fonts.find(x => x.name === fontSel.value));
+  s.querySelector('#lt-browse').onclick = async () => {
+    const f = await openFontGallery({ text: s.querySelector('#lt-text').value, current: fontSel.value });
+    if (f) applyFont(f.name);
+    if (f && editing) { await run(() => api.UpdateLettering(d.id, read())); return; }
+    S.lastSpec = read();
+    renderPropsPanel(); // refresh the favourites group in the font list
+  };
+  if (!S._favLoaded) { S._favLoaded = true; loadFavourites().then(() => renderPropsPanel()); }
   const read = () => ({
     text: s.querySelector('#lt-text').value,
     font: s.querySelector('#lt-font').value,
@@ -252,6 +291,8 @@ function letteringPanel(root) {
     spacing: parseFloat(s.querySelector('#lt-sp').value || '0') * 10,
     weight: parseFloat(s.querySelector('#lt-w').value),
     density: parseFloat(s.querySelector('#lt-den').value) * 10,
+    style: s.querySelector('#lt-style').value,
+    fillAngle: parseFloat(s.querySelector('#lt-angle').value) || 0,
   });
   s.querySelector('#lt-add').onclick = async () => {
     const sp = read();
@@ -265,7 +306,10 @@ function letteringPanel(root) {
   if (up) up.onclick = () => run(() => api.UpdateLettering(d.id, read()));
   s.querySelector('#lt-text').addEventListener('keydown', e => { if (e.key === 'Enter') (up || s.querySelector('#lt-add')).click(); });
 
-  section(root, 'About lettering', `<p class="hint">The built-in <b>Block</b> font generates satin columns with centre/edge-walk underlay and tie-ins/offs — good for names and numbers from about 8 mm up. For production fonts, add a glyph library: a folder with <code>font.json</code> and one DST per letter, digitized in your current software, placed in<br><code>${esc(S.info ? S.info.fontDir : '')}</code><br>then restart. Keep glyph fonts within ±20% of their digitized height.</p>`);
+  section(root, 'About lettering', `<p class="hint"><b>Embroidery fonts</b> (from the Ink/Stitch library) are professionally digitized: best quality, use them near their listed size; resizing rebuilds density automatically.<br>
+    <b>Windows fonts</b> are any installed TrueType/OpenType font, auto-digitized as a tatami fill (or outline). Best for bold, block or varsity styles from about 15 mm; thin and script fonts don't fill well.<br>
+    <b>Block</b> is a built-in satin font for names and numbers from about 8 mm.<br>
+    Your own digitized fonts can go in <code>${esc(S.info ? S.info.fontDir : '')}</code>.</p>`);
   summary(root);
 }
 

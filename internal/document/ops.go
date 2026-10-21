@@ -126,10 +126,10 @@ func (e *Editor) SetScale(id string, pct float64) error {
 	if pct < 10 || pct > 1000 {
 		return errors.New("scale must be 10–1000%")
 	}
-	return e.withDesign(id, func(_ *Doc, ds *Design) error {
+	return e.withDesign(id, func(d *Doc, ds *Design) error {
 		if ds.Kind == KindLettering {
 			cur := ds.Lettering.Height
-			return e.relayout(ds, func(s *lettering.Spec) { s.Height = cur * pct / 100 / currentScale(ds) })
+			return e.relayout(d, ds, func(s *lettering.Spec) { s.Height = cur * pct / 100 / currentScale(ds) })
 		}
 		k := pct / 100
 		ds.T.ScaleX, ds.T.ScaleY = k, k
@@ -188,7 +188,7 @@ func (e *Editor) resize(ds *Design, w, h float64, lock bool) error {
 		return errors.New("size out of range")
 	}
 	if ds.Kind == KindLettering {
-		return e.relayout(ds, func(s *lettering.Spec) {
+		return e.relayout(nil, ds, func(s *lettering.Spec) {
 			s.Height *= fy
 			s.Spacing *= fx
 		})
@@ -384,10 +384,9 @@ func (e *Editor) AddLettering(spec lettering.Spec) (string, string, error) {
 		if len(res.Missing) > 0 {
 			warn = strings.TrimSpace(warn + " Missing glyphs: " + strings.Join(res.Missing, " "))
 		}
-		th := d.threadFor(0)
 		ds := &Design{
 			ID: d.newID("d"), Name: strings.TrimSpace(spec.Text), Kind: KindLettering, Visible: true,
-			Blocks:    []Block{{Thread: th, Stitches: res.Stitches}},
+			Blocks:    letteringBlocks(d, res, nil),
 			Lettering: &spec,
 		}
 		ds.T = pattern.Identity(0, 0)
@@ -409,7 +408,7 @@ func (e *Editor) AddLettering(spec lettering.Spec) (string, string, error) {
 // UpdateLettering changes text/font/size of a lettering design.
 func (e *Editor) UpdateLettering(id string, spec lettering.Spec) (string, error) {
 	var warn string
-	err := e.withDesign(id, func(_ *Doc, ds *Design) error {
+	err := e.withDesign(id, func(d *Doc, ds *Design) error {
 		if ds.Kind != KindLettering {
 			return errors.New("not a lettering object")
 		}
@@ -421,7 +420,7 @@ func (e *Editor) UpdateLettering(id string, spec lettering.Spec) (string, error)
 		if len(res.Missing) > 0 {
 			warn = strings.TrimSpace(warn + " Missing glyphs: " + strings.Join(res.Missing, " "))
 		}
-		ds.Blocks = []Block{{Thread: ds.Blocks[0].Thread, Stitches: res.Stitches}}
+		ds.Blocks = letteringBlocks(d, res, ds.Blocks)
 		ds.Lettering = &spec
 		ds.Name = strings.TrimSpace(spec.Text)
 		return nil
@@ -429,7 +428,28 @@ func (e *Editor) UpdateLettering(id string, spec lettering.Spec) (string, error)
 	return warn, err
 }
 
-func (e *Editor) relayout(ds *Design, change func(*lettering.Spec)) error {
+// letteringBlocks turns a layout into design blocks, keeping the threads the
+// user already picked for each colour and using palette order for new ones.
+func letteringBlocks(d *Doc, res lettering.Result, old []Block) []Block {
+	out := make([]Block, len(res.Blocks))
+	for i, b := range res.Blocks {
+		th := ""
+		if i < len(old) {
+			th = old[i].Thread
+		}
+		if d == nil {
+			if th == "" && len(old) > 0 {
+				th = old[len(old)-1].Thread
+			}
+		} else if _, ok := d.Thread(th); !ok {
+			th = d.threadFor(i)
+		}
+		out[i] = Block{Thread: th, Stitches: b}
+	}
+	return out
+}
+
+func (e *Editor) relayout(d *Doc, ds *Design, change func(*lettering.Spec)) error {
 	spec := *ds.Lettering
 	change(&spec)
 	if spec.Height < 30 || spec.Height > 3000 {
@@ -439,7 +459,7 @@ func (e *Editor) relayout(ds *Design, change func(*lettering.Spec)) error {
 	if err != nil {
 		return err
 	}
-	ds.Blocks = []Block{{Thread: ds.Blocks[0].Thread, Stitches: res.Stitches}}
+	ds.Blocks = letteringBlocks(d, res, ds.Blocks)
 	ds.Lettering = &spec
 	return nil
 }
@@ -459,14 +479,22 @@ func (e *Editor) AdjustDensity(id string, factor float64) (DensityResult, error)
 	if factor < 0.4 || factor > 2.5 {
 		return res, errors.New("density must be 40–250%")
 	}
-	err := e.withDesign(id, func(_ *Doc, ds *Design) error {
+	err := e.withDesign(id, func(d *Doc, ds *Design) error {
 		if ds.Kind == KindLettering {
 			res.Lettering = true
 			before := 0
 			for _, b := range ds.Blocks {
 				before += pattern.Count(b.Stitches).Stitches
 			}
-			err := e.relayout(ds, func(s *lettering.Spec) {
+			err := e.relayout(d, ds, func(s *lettering.Spec) {
+				if f, ok := e.Fonts.Get(s.Font); ok && f.Native() > 0 {
+					p := s.DensityPct
+					if p <= 0 {
+						p = 100
+					}
+					s.DensityPct = math.Max(40, math.Min(250, p*factor))
+					return
+				}
 				d := s.Density
 				if d <= 0 {
 					d = 4
