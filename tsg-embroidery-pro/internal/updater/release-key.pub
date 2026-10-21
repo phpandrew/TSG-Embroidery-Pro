@@ -1,3 +1,0 @@
-# Ed25519 public key that verifies release checksums.
-# Generate with: go run ./cmd/releasekey gen
-# Empty = this build will only notify about updates, never self-install.

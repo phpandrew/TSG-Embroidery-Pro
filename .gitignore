@@ -1,2 +1,16 @@
+# build output
+build/bin/
+build/windows/
+frontend/wailsjs/
+/dist/
+
+# release signing key - NEVER commit
+release-signing-key.txt
+*.key
+
+# local working files
 *.exe
-_old
+_old/
+samples/*.png
+.DS_Store
+Thumbs.db

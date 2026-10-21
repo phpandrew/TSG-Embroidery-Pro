@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  PKG: github.com/tshirtgang/tsg-embroidery-pro/internal/version
+  PKG: github.com/phpandrew/TSG-Embroidery-Pro/internal/version
 
 jobs:
   test:

@@ -74,7 +74,7 @@ jobs:
       - name: Build
         run: |
           wails build -platform windows/amd64 -clean -trimpath \
-            -ldflags "-X github.com/tshirtgang/tsg-embroidery-pro/internal/version.Commit=${GITHUB_SHA}"
+            -ldflags "-X github.com/phpandrew/TSG-Embroidery-Pro/internal/version.Commit=${GITHUB_SHA}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tsg-embroidery-pro-windows-${{ github.sha }}
