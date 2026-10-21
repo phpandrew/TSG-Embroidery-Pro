@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:">
+  <title>TSG Embroidery Pro</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <nav id="devmenu" class="devmenu" hidden></nav>
+
+    <header class="toolbar">
+      <button class="tb" data-act="open" title="Open (Ctrl+O)"><span data-ic="open"></span>Open</button>
+      <button class="tb" data-act="merge" title="Merge DST files (Ctrl+M)"><span data-ic="merge"></span>Merge</button>
+      <button class="tb" data-act="lettering" title="Lettering (Ctrl+T)"><span data-ic="lettering"></span>Lettering</button>
+      <span class="tb-sep"></span>
+      <button class="tb icon-only" data-act="undo" id="btnUndo" title="Undo (Ctrl+Z)"><span data-ic="undo"></span></button>
+      <button class="tb icon-only" data-act="redo" id="btnRedo" title="Redo (Ctrl+Y)"><span data-ic="redo"></span></button>
+      <span class="tb-sep"></span>
+      <button class="tb" data-act="rotate" title="Rotate 90° (Ctrl+R)"><span data-ic="rotate"></span>Rotate</button>
+      <button class="tb" data-act="mirror" title="Mirror horizontally"><span data-ic="mirror"></span>Mirror</button>
+      <button class="tb" data-act="center" title="Center in hoop"><span data-ic="center"></span>Center</button>
+      <span class="spacer"></span>
+      <button class="btn btn-outline" data-act="printBlocks" title="Sew sequence print-off (Ctrl+Shift+P)" style="margin-right:8px"><span data-ic="worksheet"></span>Print sequence</button>
+      <button class="btn btn-outline" data-act="worksheet" title="Production worksheet (Ctrl+P)"><span data-ic="worksheet"></span>Worksheet</button>
+      <button class="btn btn-primary" data-act="export" title="Export DST (Ctrl+E)"><span data-ic="export"></span>Export DST</button>
+    </header>
+
+    <div id="updateBar" class="update-bar" hidden></div>
+
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="design" role="tab">Design</button>
+      <button class="tab" data-tab="lettering" role="tab">Lettering</button>
+      <button class="tab" data-tab="production" role="tab">Production</button>
+    </div>
+
+    <main class="main">
+      <aside class="panel seq">
+        <div class="panel-head">
+          <h2>Designs</h2>
+          <div class="head-btns">
+            <button class="btn btn-outline btn-sm seq-btn" data-act="grid" title="Sequence grid — every step (Ctrl+G)"><span data-ic="grid"></span>Sequence</button>
+            <button class="icon-btn" data-act="merge" title="Merge a design"><span data-ic="addFile"></span></button>
+          </div>
+        </div>
+        <div id="seqList" class="seq-list"></div>
+        <div class="seq-foot">
+          <button class="sq-btn" id="seqUp" title="Sew earlier"><span data-ic="up"></span></button>
+          <button class="sq-btn" id="seqDown" title="Sew later"><span data-ic="down"></span></button>
+          <span id="seqCount" class="muted"></span>
+        </div>
+      </aside>
+
+      <section class="center">
+        <div class="canvas-card">
+          <div class="canvas-head">
+            <label class="hoop-pick">
+              <span data-ic="hoop"></span>
+              <select id="hoopSelect"></select>
+              <span data-ic="chevron" class="chev"></span>
+            </label>
+            <div class="seg" role="group">
+              <button id="segStitches" class="on">Stitches</button>
+              <button id="segJumps">Jumps</button>
+            </div>
+          </div>
+          <div class="canvas-wrap" id="canvasWrap" style="--wails-drop-target: drop">
+            <canvas id="canvas"></canvas>
+            <div class="tools">
+              <button class="tool on" data-tool="select" title="Select / move (V)"><span data-ic="pointer"></span></button>
+              <button class="tool" data-tool="node" title="Show stitch points (N)"><span data-ic="node"></span></button>
+              <button class="tool" data-tool="pan" title="Pan (H, or hold Space)"><span data-ic="hand"></span></button>
+              <button class="tool" data-tool="measure" title="Measure (M)"><span data-ic="ruler"></span></button>
+            </div>
+            <div class="zoom">
+              <div class="zoom-box">
+                <button id="zoomOut" title="Zoom out"><span data-ic="minus"></span></button>
+                <span id="zoomLabel">100%</span>
+                <button id="zoomIn" title="Zoom in"><span data-ic="plus"></span></button>
+              </div>
+              <button class="zoom-fit" id="zoomFit" title="Fit to hoop"><span data-ic="fit"></span></button>
+            </div>
+            <div id="emptyState" class="empty" hidden>
+              <div class="empty-card">
+                <h3>No design loaded</h3>
+                <p>Open or merge a Tajima DST file, drop files here, or add lettering.</p>
+                <div class="empty-actions">
+                  <button class="btn btn-primary" data-act="open"><span data-ic="open"></span>Open DST</button>
+                  <button class="btn btn-outline" data-act="quickText"><span data-ic="lettering"></span>Add lettering</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="player">
+          <div class="player-title">Stitch playback</div>
+          <div class="player-row">
+            <div class="transport">
+              <button id="pFirst" title="Start"><span data-ic="first"></span></button>
+              <button id="pPrev" title="Previous block"><span data-ic="prev"></span></button>
+              <button id="pPlay" class="play" title="Play / pause (Space)"><span data-ic="play"></span></button>
+              <button id="pNext" title="Next block"><span data-ic="next"></span></button>
+              <button id="pLast" title="End"><span data-ic="last"></span></button>
+            </div>
+            <div class="track" id="track"><div class="track-segs" id="trackSegs"></div><div class="thumb" id="thumb"></div></div>
+            <span id="pCount" class="pcount">0 / 0</span>
+            <label class="speed"><select id="pSpeed"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10">10×</option><option value="25">25×</option></select><span data-ic="chevron" class="chev"></span></label>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel props" id="props"></aside>
+    </main>
+
+    <footer class="status">
+      <span id="statusMsg">Ready</span>
+      <span>Units: mm</span>
+      <span id="statusMachine"></span>
+    </footer>
+  </div>
+
+  <div id="modalRoot"></div>
+  <div id="toasts" class="toasts"></div>
+  <div id="ctxMenu" class="ctx" hidden></div>
+  <div id="printRoot" class="print-root"></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

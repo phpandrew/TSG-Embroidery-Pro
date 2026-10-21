@@ -1,0 +1,19 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "TSG Embroidery Pro",
+  "outputfilename": "tsg-embroidery-pro",
+  "frontend:dir": "frontend",
+  "frontend:install": "",
+  "frontend:build": "",
+  "wailsjsdir": "./frontend",
+  "author": {
+    "name": "Tshirtgang"
+  },
+  "info": {
+    "companyName": "Tshirtgang",
+    "productName": "TSG Embroidery Pro",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright © Tshirtgang",
+    "comments": "View, merge, resize and letter Tajima DST embroidery files"
+  }
+}
