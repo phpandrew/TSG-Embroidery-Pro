@@ -78,12 +78,14 @@ The built-in **Block** font generates satin columns on the fly; it's fine for na
 
 ## Releasing
 
+Change the number in `VERSION` (e.g. `0.2.0`, or `0.3.0-beta.1` for a pre-release), commit and push to `main`:
+
 ```sh
-git tag v0.1.0
-git push origin v0.1.0          # v0.2.0-beta.1 style tags publish as pre-releases
+git commit -am "Release 0.2.0"
+git push
 ```
 
-`release.yml` then: re-runs tests and govulncheck, builds Windows (amd64/arm64), Linux and macOS, writes `checksums.txt`, signs it with the release key, attaches a GitHub build-provenance attestation, and publishes the release. Installed copies pick it up at next launch (or **Help → Check for updates**), download it, verify signature + SHA-256, swap the exe and restart.
+`release.yml` then tags the commit `v0.2.0` and: re-runs tests and govulncheck, builds Windows (amd64/arm64), Linux and macOS, writes `checksums.txt`, signs it with the release key, attaches a GitHub build-provenance attestation, and publishes the release. Installed copies pick it up at next launch (or **Help → Check for updates**), download it, verify signature + SHA-256, swap the exe and restart.
 
 Verify a download by hand:
 ```sh
