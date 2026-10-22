@@ -67,7 +67,7 @@ export function apply(view, opts = {}) {
   if (wasAtEnd || S.play.pos > R.total) S.play.pos = R.total;
   if (firstLoad) R.fit(view.hoop);
   renderSeq();
-  renderPropsPanel();
+  if (!opts.keepProps) renderPropsPanel();
   renderPlayer();
   renderChrome();
   redraw();
@@ -88,6 +88,20 @@ export async function run(fn, okMsg) {
     toast(e.message || String(e), 'err');
     setStatus('Error: ' + (e.message || e));
     if (e && e.stack) logError(e.stack);
+    return null;
+  }
+}
+
+// runLive applies an edit made while the user is typing: the side panel is
+// left alone (so the text box keeps focus) and problems go to the status bar.
+export async function runLive(fn) {
+  try {
+    const r = await fn();
+    if (r && r.view) apply(r.view, { select: r.id, keepProps: true });
+    setStatus(r && r.warning ? r.warning : 'Ready');
+    return r;
+  } catch (e) {
+    setStatus(e.message || String(e));
     return null;
   }
 }

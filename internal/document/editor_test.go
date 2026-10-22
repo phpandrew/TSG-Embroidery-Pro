@@ -184,3 +184,20 @@ func TestSnapToPrevious(t *testing.T) {
 		t.Fatalf("connected designs should need no trim: %+v", v.Summary)
 	}
 }
+
+func TestLiveLetteringEditsShareOneUndo(t *testing.T) {
+	e := NewEditor(nil)
+	id, _, err := e.AddLettering(lettering.Spec{Text: "A", Font: "Block", Height: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, txt := range []string{"AB", "ABC", "ABCD"} {
+		if _, err := e.UpdateLettering(id, lettering.Spec{Text: txt, Font: "Block", Height: 100}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.Undo()
+	if ds := e.State().Designs; len(ds) != 1 || ds[0].ID != id || ds[0].Name != "A" {
+		t.Fatalf("one undo should go back to before typing, got %+v", ds)
+	}
+}

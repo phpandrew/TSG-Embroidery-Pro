@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/phpandrew/TSG-Embroidery-Pro/internal/dst"
 	"github.com/phpandrew/TSG-Embroidery-Pro/internal/lettering"
@@ -36,6 +37,10 @@ type Editor struct {
 	// defaults are the settings new documents start with (the user's last
 	// machine settings and hoop).
 	defaults Settings
+	// live edits (typing in the lettering panel) with the same key within a
+	// few seconds share one undo step
+	liveKey string
+	liveAt  time.Time
 }
 
 func NewEditor(fonts *lettering.Registry) *Editor {
@@ -52,7 +57,24 @@ func (e *Editor) mutate(fn func(d *Doc) error) error {
 	return e.mutateLocked(fn)
 }
 
+// mutateLive is mutate for live edits: repeated calls with the same key in
+// quick succession collapse into a single undo step.
+func (e *Editor) mutateLive(key string, fn func(d *Doc) error) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	merge := key == e.liveKey && time.Since(e.liveAt) < 4*time.Second && len(e.undo) > 0
+	if err := e.mutateLocked(fn); err != nil {
+		return err
+	}
+	if merge {
+		e.undo = e.undo[:len(e.undo)-1]
+	}
+	e.liveKey, e.liveAt = key, time.Now()
+	return nil
+}
+
 func (e *Editor) mutateLocked(fn func(d *Doc) error) error {
+	e.liveKey = ""
 	work := e.doc.clone()
 	if err := fn(work); err != nil {
 		return err
@@ -70,6 +92,7 @@ func (e *Editor) mutateLocked(fn func(d *Doc) error) error {
 func (e *Editor) Undo() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.liveKey = ""
 	if n := len(e.undo); n > 0 {
 		e.redo = append(e.redo, e.doc)
 		e.doc = e.undo[n-1]
@@ -81,6 +104,7 @@ func (e *Editor) Undo() {
 func (e *Editor) Redo() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.liveKey = ""
 	if n := len(e.redo); n > 0 {
 		e.undo = append(e.undo, e.doc)
 		e.doc = e.redo[n-1]

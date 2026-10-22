@@ -2,7 +2,7 @@
 import { api } from './api.js';
 import { icon } from './icons.js';
 import { esc, fmt, mm, numField, toast } from './ui.js';
-import { S, run, selected, setTab, renderPropsPanel, redraw, actions } from './main.js';
+import { S, run, runLive, selected, setTab, renderPropsPanel, redraw, actions } from './main.js';
 import { openFontGallery, isFavourite, loadFavourites } from './fontgallery.js';
 
 export function renderProps(root) {
@@ -258,7 +258,7 @@ function letteringPanel(root) {
     </div>
     ${editing ? '' : `<label class="f">Thread<select class="inp" id="lt-thread"><option value="">First palette thread</option>${thrOpts}</select></label>`}
     <div class="btn-row">
-      ${editing ? '<button class="btn btn-primary btn-sm" id="lt-update">Update lettering</button><button class="btn btn-ghost btn-sm" id="lt-add">Add as new</button>' : '<button class="btn btn-primary btn-sm" id="lt-add">Add to design</button>'}
+      ${editing ? '<span class="muted" style="align-self:center">Changes apply as you type</span><button class="btn btn-ghost btn-sm" id="lt-add">Add as new copy</button>' : '<button class="btn btn-primary btn-sm" id="lt-add">Add to design</button>'}
     </div>
   </div>`);
   const fontSel = s.querySelector('#lt-font');
@@ -317,10 +317,34 @@ function letteringPanel(root) {
     const r = await run(() => api.AddLettering(sp));
     if (r && thr && thr.value) await run(() => api.SetBlockThread(r.id, 0, thr.value));
   };
-  const up = s.querySelector('#lt-update');
-  if (up) up.onclick = () => run(() => api.UpdateLettering(d.id, read()));
-  // Enter = new line; Ctrl+Enter = add / update
-  s.querySelector('#lt-text').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); (up || s.querySelector('#lt-add')).click(); } });
+  // editing: every change re-lays-out the lettering on the canvas as you type
+  let liveTimer = null, liveBusy = false, liveAgain = false;
+  const sendLive = async () => {
+    if (liveBusy) { liveAgain = true; return; }
+    const sp = read();
+    if (!sp.text.trim() || !(sp.height >= 30)) return;
+    liveBusy = true;
+    const r = await runLive(() => api.UpdateLettering(d.id, sp));
+    liveBusy = false;
+    if (r) {
+      S.lastSpec = sp;
+      const h = s.querySelector('h3');
+      if (h) h.textContent = `Edit “${sp.text.split('\n').filter(l => l.trim()).join(' / ')}”`;
+    }
+    if (liveAgain) { liveAgain = false; sendLive(); }
+  };
+  const live = () => { if (!editing) return; clearTimeout(liveTimer); liveTimer = setTimeout(sendLive, 250); };
+  if (editing) {
+    s.querySelectorAll('input.inp, textarea.inp').forEach(el => el.addEventListener('input', live));
+    s.querySelectorAll('select.inp').forEach(el => el.addEventListener('change', live));
+  }
+  // Enter = new line; Ctrl+Enter = add (or apply now when editing)
+  s.querySelector('#lt-text').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      if (editing) { clearTimeout(liveTimer); sendLive(); } else s.querySelector('#lt-add').click();
+    }
+  });
 
   section(root, 'About lettering', `<p class="hint"><b>Embroidery fonts</b> (from the Ink/Stitch library) are professionally digitized: best quality, use them near their listed size; resizing rebuilds density automatically.<br>
     <b>Windows fonts</b> are any installed TrueType/OpenType font, auto-digitized as a tatami fill (or outline). Best for bold, block or varsity styles from about 15 mm; thin and script fonts don't fill well.<br>

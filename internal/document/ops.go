@@ -408,7 +408,11 @@ func (e *Editor) AddLettering(spec lettering.Spec) (string, string, error) {
 // UpdateLettering changes text/font/size of a lettering design.
 func (e *Editor) UpdateLettering(id string, spec lettering.Spec) (string, error) {
 	var warn string
-	err := e.withDesign(id, func(d *Doc, ds *Design) error {
+	err := e.mutateLive("lettering:"+id, func(d *Doc) error {
+		ds, _ := d.Design(id)
+		if ds == nil {
+			return errNoDesign
+		}
 		if ds.Kind != KindLettering {
 			return errors.New("not a lettering object")
 		}
