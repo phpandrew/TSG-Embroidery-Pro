@@ -128,7 +128,7 @@ func DefaultSettings() Settings {
 		ColorSeconds: 6,
 		TrimJumps:    3,
 		TrimAbove:    30,
-		Hoop:         "r200",
+		Hoop:         "in4x4",
 		StartAt:      "design",
 		MinStitch:    3,
 		Needles:      15,
@@ -145,6 +145,8 @@ type Hoop struct {
 }
 
 var Hoops = []Hoop{
+	{"in4x4", "4 × 4 in (102 × 102 mm)", "rect", 1016, 1016},
+	{"hat4x2", "Hat 4 × 2 in (102 × 51 mm)", "rect", 1016, 508},
 	{"r90", "90 mm round", "round", 900, 900},
 	{"r120", "120 mm round", "round", 1200, 1200},
 	{"r150", "150 mm round", "round", 1500, 1500},
@@ -162,7 +164,7 @@ func HoopByID(id string) Hoop {
 			return h
 		}
 	}
-	return Hoops[4]
+	return Hoops[0]
 }
 
 // Contains reports whether all of r fits in the hoop (centred at 0,0).
@@ -191,8 +193,10 @@ type Doc struct {
 	NextID   int       `json:"nextId"`
 }
 
-func NewDoc() *Doc {
-	return &Doc{Name: "Untitled", Settings: DefaultSettings(), NextID: 1}
+func NewDoc() *Doc { return newDocWith(DefaultSettings()) }
+
+func newDocWith(s Settings) *Doc {
+	return &Doc{Name: "Untitled", Settings: s, NextID: 1}
 }
 
 func (d *Doc) newID(prefix string) string {

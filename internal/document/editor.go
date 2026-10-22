@@ -33,13 +33,16 @@ type Editor struct {
 	path  string // project path, "" until saved
 	dirty bool
 	Fonts *lettering.Registry
+	// defaults are the settings new documents start with (the user's last
+	// machine settings and hoop).
+	defaults Settings
 }
 
 func NewEditor(fonts *lettering.Registry) *Editor {
 	if fonts == nil {
 		fonts = lettering.NewRegistry()
 	}
-	return &Editor{doc: NewDoc(), Fonts: fonts}
+	return &Editor{doc: NewDoc(), Fonts: fonts, defaults: DefaultSettings()}
 }
 
 // mutate runs fn on a working copy; on success the old doc goes on the undo stack.
@@ -97,7 +100,29 @@ func (e *Editor) Dirty() bool {
 func (e *Editor) Reset() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.doc, e.undo, e.redo, e.path, e.dirty = NewDoc(), nil, nil, "", false
+	e.doc, e.undo, e.redo, e.path, e.dirty = newDocWith(e.defaults), nil, nil, "", false
+}
+
+// SetDefaults sets the settings new documents start with. If the current
+// document is still empty and unsaved it picks them up too.
+func (e *Editor) SetDefaults(s Settings) {
+	if s.SPM <= 0 {
+		return
+	}
+	s.Hoop = HoopByID(s.Hoop).ID
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.defaults = s
+	if e.path == "" && !e.dirty && len(e.undo) == 0 && len(e.doc.Designs) == 0 {
+		e.doc.Settings = s
+	}
+}
+
+// Settings returns the current document's settings.
+func (e *Editor) Settings() Settings {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.doc.Settings
 }
 
 // ---- threads -------------------------------------------------------------

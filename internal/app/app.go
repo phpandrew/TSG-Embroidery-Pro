@@ -45,6 +45,8 @@ type Prefs struct {
 	LastOpenDir      string   `json:"lastOpenDir"` // folder of the last opened/merged file
 	LastSaveDir      string   `json:"lastSaveDir"` // folder of the last save/export
 	FavoriteFonts    []string `json:"favoriteFonts"`
+	// Machine is the last machine settings and hoop used; new designs start with it.
+	Machine *document.Settings `json:"machine,omitempty"`
 }
 
 // App is bound to the frontend.
@@ -86,6 +88,9 @@ func New(ui UI) *App {
 		cfgDir: cfg,
 	}
 	a.loadPrefs()
+	if a.prefs.Machine != nil {
+		a.ed.SetDefaults(*a.prefs.Machine)
+	}
 	// installed TrueType/OpenType fonts: names only, outlines load on use
 	go func() {
 		n := fonts.LoadSystemFonts(lettering.SystemFontDirs())
@@ -382,7 +387,17 @@ func (a *App) SetThread(t document.Thread) (document.View, error) {
 }
 
 func (a *App) SetSettings(s document.Settings) (document.View, error) {
-	return a.view(a.ed.SetSettings(s))
+	if err := a.ed.SetSettings(s); err != nil {
+		return a.view(err)
+	}
+	// remember hoop and machine settings for the next new design / launch
+	cur := a.ed.Settings()
+	a.ed.SetDefaults(cur)
+	a.prefsMu.Lock()
+	a.prefs.Machine = &cur
+	a.prefsMu.Unlock()
+	a.savePrefs()
+	return a.view(nil)
 }
 
 type LetteringResult struct {
@@ -526,6 +541,9 @@ func (a *App) SetPrefs(p Prefs) Prefs {
 	p.LastOpenDir, p.LastSaveDir = a.prefs.LastOpenDir, a.prefs.LastSaveDir
 	if p.FavoriteFonts == nil {
 		p.FavoriteFonts = a.prefs.FavoriteFonts
+	}
+	if p.Machine == nil {
+		p.Machine = a.prefs.Machine
 	}
 	a.prefs = p
 	a.prefsMu.Unlock()
