@@ -15,6 +15,18 @@ export async function loadFavourites() {
 
 export function isFavourite(name) { return favourites ? favourites.has(name) : false; }
 
+// fontOptions builds <option>s for a font dropdown: favourites first, then
+// embroidery fonts. Windows fonts are listed only when withWindows is set
+// (the current font is always kept so the dropdown can show it).
+export function fontOptions(fonts, current, withWindows = false) {
+  const opt = f => `<option value="${esc(f.name)}">${esc(f.name)}${f.native ? ` — ${(f.native / 10).toFixed(0)} mm` : f.kind === 'windows' ? ' (Windows)' : ' (built-in)'}</option>`;
+  const list = fonts.filter(f => withWindows || f.kind !== 'windows' || f.name === current);
+  const favs = list.filter(f => isFavourite(f.name));
+  const label = withWindows ? 'All fonts' : 'Embroidery fonts';
+  return (favs.length ? `<optgroup label="★ Favourites">${favs.map(opt).join('')}</optgroup><optgroup label="${label}">` : '') +
+    list.map(opt).join('') + (favs.length ? '</optgroup>' : '');
+}
+
 // openFontGallery({ text, current }) -> Promise<FontInfo|null>
 export async function openFontGallery({ text = '', current = '' } = {}) {
   const fonts = await api.Fonts();
@@ -23,13 +35,13 @@ export async function openFontGallery({ text = '', current = '' } = {}) {
   let previewText = text.trim() || 'Andrew 23';
   let query = '';
   let favOnly = false;
-  let kind = 'all'; // all | embroidery | windows
+  let kind = 'embroidery'; // all | embroidery | windows
 
   const body = `<div class="fg">
     <div class="fg-bar">
       <label class="fg-search">${icon('search', 16)}<input id="fg-q" placeholder="Search fonts (name, style: script, block, serif…)"></label>
       <label class="fg-text">Preview<input id="fg-t" value="${esc(previewText)}" maxlength="40"></label>
-      <div class="seg fg-kind"><button data-k="all" class="on">All</button><button data-k="embroidery">Embroidery fonts</button><button data-k="windows">Windows fonts</button></div>
+      <div class="seg fg-kind"><button data-k="all">All</button><button data-k="embroidery" class="on">Embroidery fonts</button><button data-k="windows">Windows fonts</button></div>
       <button class="fg-chip" id="fg-fav">${icon('star', 15)} Favourites</button>
       <span class="muted" id="fg-count"></span>
     </div>

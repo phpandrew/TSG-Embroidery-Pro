@@ -424,12 +424,32 @@ func (e *Editor) UpdateLettering(id string, spec lettering.Spec) (string, error)
 		if len(res.Missing) > 0 {
 			warn = strings.TrimSpace(warn + " Missing glyphs: " + strings.Join(res.Missing, " "))
 		}
+		before := ds.Bounds()
 		ds.Blocks = letteringBlocks(d, res, ds.Blocks)
 		ds.Lettering = &spec
 		ds.Name = letteringName(spec.Text)
+		anchor(ds, before, spec.Align)
 		return nil
 	})
 	return warn, err
+}
+
+// anchor keeps edited lettering in place: the top edge stays put (new lines
+// grow downward) and, by alignment, the left edge, centre or right edge.
+func anchor(ds *Design, before pattern.Rect, align string) {
+	after := ds.Bounds()
+	if before.Empty() || after.Empty() {
+		return
+	}
+	switch align {
+	case "left":
+		ds.T.X += before.MinX - after.MinX
+	case "right":
+		ds.T.X += before.MaxX - after.MaxX
+	default:
+		ds.T.X += before.CenterX() - after.CenterX()
+	}
+	ds.T.Y += before.MinY - after.MinY
 }
 
 // letteringBlocks turns a layout into design blocks, keeping the threads the

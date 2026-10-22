@@ -3,7 +3,7 @@ import { api } from './api.js';
 import { icon } from './icons.js';
 import { esc, fmt, mm, numField, toast } from './ui.js';
 import { S, run, runLive, selected, setTab, renderPropsPanel, redraw, actions } from './main.js';
-import { openFontGallery, isFavourite, loadFavourites } from './fontgallery.js';
+import { openFontGallery, fontOptions, loadFavourites } from './fontgallery.js';
 
 export function renderProps(root) {
   root.innerHTML = '';
@@ -227,19 +227,17 @@ function letteringPanel(root) {
   const spec = editing ? d.lettering : (S.lastSpec || { text: '', font: 'Block', height: 180, spacing: 0, weight: 17, density: 4 });
   const v = S.view;
   const s = section(root, editing ? `Edit “${d.name}”` : 'New lettering');
-  const opt = f => `<option value="${esc(f.name)}">${esc(f.name)}${f.native ? ` — ${(f.native / 10).toFixed(0)} mm` : f.kind === 'windows' ? ' (Windows)' : ' (built-in)'}</option>`;
-  const favs = v.fonts.filter(f => isFavourite(f.name));
-  const fontOpts = (favs.length ? `<optgroup label="★ Favourites">${favs.map(opt).join('')}</optgroup><optgroup label="All fonts">` : '') +
-    v.fonts.map(opt).join('') + (favs.length ? '</optgroup>' : '');
+  const fontOpts = fontOptions(v.fonts, spec.font || 'Block', !!S.showWinFonts);
   const thrOpts = v.threads.map(t => `<option value="${t.id}">${esc(t.name)} — needle ${t.needle}</option>`).join('');
   s.insertAdjacentHTML('beforeend', `<div class="form">
     <label class="f">Text <span class="muted">(Enter for a new line)</span><textarea class="inp" id="lt-text" rows="2" placeholder="e.g. ANDREW" maxlength="400">${esc(spec.text)}</textarea></label>
-    <div class="two ml-only">
-      <label class="f">Line spacing (% of height)<input class="inp" id="lt-ls" type="number" step="5" min="80" max="400" value="${spec.lineSpacing || 150}"></label>
-      <label class="f">Align<select class="inp" id="lt-align"><option value="center">Centre</option><option value="left">Left</option><option value="right">Right</option></select></label>
+    <div class="two">
+      <label class="f">Align<div class="seg lt-align"><button type="button" data-a="left">Left</button><button type="button" data-a="center">Centre</button><button type="button" data-a="right">Right</button></div></label>
+      <label class="f ml-only">Line spacing (% of height)<input class="inp" id="lt-ls" type="number" step="5" min="80" max="400" value="${spec.lineSpacing || 150}"></label>
     </div>
     <label class="f">Font<div class="font-row"><select class="inp" id="lt-font">${fontOpts}</select>
-      <button type="button" class="btn btn-ghost btn-sm" id="lt-browse" style="height:38px">${icon('grid', 15)} Browse…</button></div></label>
+      <button type="button" class="btn btn-ghost btn-sm" id="lt-browse" style="height:38px">${icon('grid', 15)} Browse…</button></div>
+      <span class="check sm"><input type="checkbox" id="lt-win" ${S.showWinFonts ? 'checked' : ''}> Include Windows fonts</span></label>
     <div class="two">
       <label class="f">Cap height (mm)<input class="inp" id="lt-h" type="number" step="0.5" min="3" max="300" value="${(spec.height / 10).toFixed(1)}"></label>
       <label class="f">Letter spacing (mm)<input class="inp" id="lt-sp" type="number" step="0.1" value="${((spec.spacing || 0) / 10).toFixed(1)}"></label>
@@ -265,6 +263,7 @@ function letteringPanel(root) {
   fontSel.value = spec.font || 'Block';
   const applyFont = name => {
     const f = v.fonts.find(x => x.name === name);
+    if (![...fontSel.options].some(o => o.value === name)) fontSel.innerHTML = fontOptions(v.fonts, name, !!S.showWinFonts);
     fontSel.value = name;
     // digitized fonts sew best at their own size
     if (f && f.native) s.querySelector('#lt-h').value = (f.native / 10).toFixed(1);
@@ -279,12 +278,22 @@ function letteringPanel(root) {
     s.querySelector('.sys-only').style.display = kind === 'windows' ? '' : 'none';
   }
   s.querySelector('#lt-style').value = spec.style || 'fill';
-  s.querySelector('#lt-align').value = spec.align || 'center';
+  let align = spec.align || 'center';
+  const alignBtns = s.querySelectorAll('.lt-align button');
+  const showAlign = () => alignBtns.forEach(b => b.classList.toggle('on', b.dataset.a === align));
+  alignBtns.forEach(b => b.onclick = e => { e.preventDefault(); align = b.dataset.a; showAlign(); live(); });
+  showAlign();
+  s.querySelector('#lt-win').onchange = e => {
+    S.showWinFonts = e.target.checked;
+    const cur = fontSel.value;
+    fontSel.innerHTML = fontOptions(v.fonts, cur, S.showWinFonts);
+    fontSel.value = cur;
+  };
   const txt = s.querySelector('#lt-text');
   const fitText = () => {
     const n = txt.value.split('\n').length;
     txt.rows = Math.min(Math.max(n, 2), 8);
-    s.querySelector('.ml-only').style.display = n > 1 ? '' : 'none';
+    s.querySelector('.ml-only').style.visibility = n > 1 ? '' : 'hidden';
   };
   txt.addEventListener('input', fitText);
   fitText();
@@ -307,7 +316,7 @@ function letteringPanel(root) {
     style: s.querySelector('#lt-style').value,
     fillAngle: parseFloat(s.querySelector('#lt-angle').value) || 0,
     lineSpacing: parseFloat(s.querySelector('#lt-ls').value) || 150,
-    align: s.querySelector('#lt-align').value,
+    align,
   });
   s.querySelector('#lt-add').onclick = async () => {
     const sp = read();

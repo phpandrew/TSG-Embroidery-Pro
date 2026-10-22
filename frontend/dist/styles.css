@@ -387,3 +387,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; border: 1px
 .fg-star.on .ic { fill: #f2b705; }
 .font-row { display: flex; gap: 8px; }
 .font-row select { flex: 1; min-width: 0; }
+
+.form .seg.lt-align { display: flex; height: 38px; }
+.form .seg.lt-align button { flex: 1; padding: 5px 6px; }
+.form .check.sm { font-size: 13px; color: var(--muted, #6b7280); margin-top: 6px; }

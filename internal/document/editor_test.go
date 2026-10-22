@@ -201,3 +201,31 @@ func TestLiveLetteringEditsShareOneUndo(t *testing.T) {
 		t.Fatalf("one undo should go back to before typing, got %+v", ds)
 	}
 }
+
+func TestLetteringAlignAnchorsEdge(t *testing.T) {
+	for _, tc := range []struct {
+		align string
+		edge  func(r pattern.Rect) float64
+	}{
+		{"left", func(r pattern.Rect) float64 { return r.MinX }},
+		{"right", func(r pattern.Rect) float64 { return r.MaxX }},
+		{"center", func(r pattern.Rect) float64 { return r.CenterX() }},
+	} {
+		e := NewEditor(nil)
+		id, _, err := e.AddLettering(lettering.Spec{Text: "AB", Font: "Block", Height: 100, Align: tc.align})
+		if err != nil {
+			t.Fatal(err)
+		}
+		b0 := e.State().Designs[0].Bounds
+		if _, err := e.UpdateLettering(id, lettering.Spec{Text: "ABCDEF", Font: "Block", Height: 100, Align: tc.align}); err != nil {
+			t.Fatal(err)
+		}
+		b1 := e.State().Designs[0].Bounds
+		if abs(tc.edge(b0)-tc.edge(b1)) > 0.5 || abs(b0.MinY-b1.MinY) > 0.5 {
+			t.Fatalf("%s: anchor moved %v -> %v", tc.align, b0, b1)
+		}
+		if b1.Width() <= b0.Width() {
+			t.Fatalf("%s: text should have grown", tc.align)
+		}
+	}
+}

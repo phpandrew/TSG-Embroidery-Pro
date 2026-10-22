@@ -5,7 +5,7 @@ import { $, $$, esc, fmt, mm, toast, modal, prompt, contextMenu, numField, hydra
 import { renderProps } from './panels.js';
 import { openWorksheet, openSequenceGrid } from './worksheet.js';
 import { openColorBlockPrint } from './print.js';
-import { openFontGallery } from './fontgallery.js';
+import { openFontGallery, fontOptions, loadFavourites } from './fontgallery.js';
 
 // ---------------------------------------------------------------- state
 export const S = {
@@ -554,7 +554,10 @@ export const actions = {
   },
   quickText: async () => {
     const v = S.view;
-    const fonts = v.fonts.map(f => `<option value="${esc(f.name)}">${esc(f.name)}</option>`).join('');
+    await loadFavourites();
+    const startFont = (S.lastSpec && S.lastSpec.font) || 'Block';
+    const fonts = fontOptions(v.fonts, startFont, !!S.showWinFonts);
+    let align = (S.lastSpec && S.lastSpec.align) || 'center';
     const setFont = (b, name) => {
       const f = v.fonts.find(x => x.name === name);
       b.querySelector('#q-font').value = name;
@@ -565,21 +568,39 @@ export const actions = {
       body: `<div class="form">
         <label class="f">Text <span class="muted">(Enter for a new line)</span><textarea class="inp" id="q-text" rows="3" placeholder="e.g. ANDREW" maxlength="400"></textarea></label>
         <label class="f">Font<div class="font-row"><select class="inp" id="q-font">${fonts}</select>
-          <button type="button" class="btn btn-ghost btn-sm" id="q-browse" style="height:38px">${icon('grid', 15)} Browse…</button></div></label>
-        <label class="f">Cap height (mm)<input class="inp" id="q-h" type="number" min="3" max="300" step="0.5" value="18"></label>
+          <button type="button" class="btn btn-ghost btn-sm" id="q-browse" style="height:38px">${icon('grid', 15)} Browse…</button></div>
+          <span class="check sm"><input type="checkbox" id="q-win" ${S.showWinFonts ? 'checked' : ''}> Include Windows fonts</span></label>
+        <div class="two">
+          <label class="f">Cap height (mm)<input class="inp" id="q-h" type="number" min="3" max="300" step="0.5" value="18"></label>
+          <label class="f">Align<div class="seg lt-align"><button type="button" data-a="left">Left</button><button type="button" data-a="center">Centre</button><button type="button" data-a="right">Right</button></div></label>
+        </div>
         </div>`,
       onOpen: b => {
-        if (S.lastSpec && S.lastSpec.font) setFont(b, S.lastSpec.font);
+        setFont(b, startFont);
+        const ab = b.querySelectorAll('.lt-align button');
+        const showAlign = () => ab.forEach(x => x.classList.toggle('on', x.dataset.a === align));
+        ab.forEach(x => x.onclick = e => { e.preventDefault(); align = x.dataset.a; showAlign(); });
+        showAlign();
+        b.querySelector('#q-win').onchange = e => {
+          S.showWinFonts = e.target.checked;
+          const sel = b.querySelector('#q-font'), cur = sel.value;
+          sel.innerHTML = fontOptions(v.fonts, cur, S.showWinFonts);
+          sel.value = cur;
+        };
         b.querySelector('#q-font').onchange = e => setFont(b, e.target.value);
         b.querySelector('#q-browse').onclick = async () => {
           const f = await openFontGallery({ text: b.querySelector('#q-text').value.split('\n')[0], current: b.querySelector('#q-font').value });
-          if (f) setFont(b, f.name);
+          if (f) {
+            const sel = b.querySelector('#q-font');
+            if (![...sel.options].some(o => o.value === f.name)) sel.innerHTML = fontOptions(v.fonts, f.name, S.showWinFonts);
+            setFont(b, f.name);
+          }
           b.querySelector('#q-text').focus();
         };
       },
       buttons: [{ label: 'Cancel', value: null }, {
         label: 'Add', kind: 'primary',
-        value: b => ({ text: b.querySelector('#q-text').value, font: b.querySelector('#q-font').value, height: parseFloat(b.querySelector('#q-h').value) * 10, spacing: 0, weight: 17, density: 4 }),
+        value: b => ({ text: b.querySelector('#q-text').value, font: b.querySelector('#q-font').value, height: parseFloat(b.querySelector('#q-h').value) * 10, spacing: 0, weight: 17, density: 4, align }),
       }],
     });
     if (!spec) return;
