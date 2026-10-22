@@ -420,6 +420,14 @@ func (a *App) FontPreview(font, text string, width, height int) (string, error) 
 	width = min(max(width, 80), 1600)
 	height = min(max(height, 30), 800)
 	res, err := a.ed.Fonts.Layout(lettering.Spec{Text: text, Font: font})
+	if err != nil || len(res.Missing) > 0 {
+		// font lacks these characters (other script, monogram set): show its own
+		if sample := a.ed.Fonts.SampleText(font); sample != "" {
+			if r2, err2 := a.ed.Fonts.Layout(lettering.Spec{Text: sample, Font: font}); err2 == nil {
+				res, err = r2, nil
+			}
+		}
+	}
 	if err != nil {
 		return "", err
 	}

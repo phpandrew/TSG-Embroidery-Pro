@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"path"
+	"strings"
 	"sync"
 	"unicode"
 
@@ -201,4 +202,28 @@ func PackGlyphs(meta *PackedFontFile, glyphs map[string][]pattern.St, advance ma
 		return nil, err
 	}
 	return gz.Bytes(), nil
+}
+
+// SampleText returns a few characters the font actually has (for previews of
+// fonts that lack the requested text, e.g. Hebrew or monogram sets).
+func (r *Registry) SampleText(name string) string {
+	f, ok := r.Get(name)
+	if !ok {
+		return ""
+	}
+	pf, ok := f.(*packedFont)
+	if !ok {
+		return ""
+	}
+	keys := make([]string, 0, len(pf.meta.Glyphs))
+	for k := range pf.meta.Glyphs {
+		if k != " " {
+			keys = append(keys, k)
+		}
+	}
+	sortStrings(keys)
+	if len(keys) > 6 {
+		keys = keys[:6]
+	}
+	return strings.Join(keys, "")
 }

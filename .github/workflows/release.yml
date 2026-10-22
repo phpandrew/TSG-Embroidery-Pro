@@ -1,9 +1,15 @@
 name: Release
 
-# Push a tag like v0.2.0 (or v0.3.0-beta.1 for a pre-release) on main to publish.
+# To release: change the number in the VERSION file (e.g. 0.2.0, or
+# 0.3.0-beta.1 for a pre-release) and push to main. This workflow tags the
+# commit, builds every platform, signs the checksums and publishes the release.
+# A version that has already been released is skipped. "Run workflow" on the
+# Actions tab re-tries the current VERSION (e.g. after a failed run).
 on:
   push:
-    tags: ["v*.*.*"]
+    branches: [main]
+    paths: [VERSION]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,15 +18,44 @@ env:
   PKG: github.com/phpandrew/TSG-Embroidery-Pro/internal/version
 
 jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read VERSION
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ver="$(tr -d ' \r\n' < VERSION)"
+          ver="${ver#v}"
+          if ! [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::VERSION must look like 1.2.3 or 1.2.3-beta.1 (got '$ver')"; exit 1
+          fi
+          tag="v$ver"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::notice::$tag is already released; bump VERSION to publish a new one"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
   test:
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0
-      - name: Tag must be on main
-        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Only release from main
+        run: test "$GITHUB_REF" = "refs/heads/main"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -35,7 +70,9 @@ jobs:
           fi
 
   build:
-    needs: test
+    needs: [prepare, test]
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
     strategy:
       fail-fast: true
       matrix:
@@ -60,7 +97,7 @@ jobs:
       - name: Stamp version into wails.json
         shell: bash
         run: |
-          v="${GITHUB_REF_NAME#v}"; v="${v%%-*}"
+          v="${TAG#v}"; v="${v%%-*}"
           sed -i.bak "s/\"productVersion\": \"[^\"]*\"/\"productVersion\": \"$v\"/" wails.json && rm wails.json.bak
       - name: Build
         shell: bash
@@ -68,7 +105,7 @@ jobs:
           tags=""
           [ -n "${{ matrix.tags }}" ] && tags="-tags ${{ matrix.tags }}"
           wails build -platform "${{ matrix.platform }}" -clean -trimpath $tags \
-            -ldflags "-s -w -X ${PKG}.Version=${GITHUB_REF_NAME} -X ${PKG}.Commit=${GITHUB_SHA} -X ${PKG}.Repo=${GITHUB_REPOSITORY}"
+            -ldflags "-s -w -X ${PKG}.Version=${TAG} -X ${PKG}.Commit=${GITHUB_SHA} -X ${PKG}.Repo=${GITHUB_REPOSITORY}"
           mkdir -p dist
           if [[ "${{ matrix.platform }}" == darwin/* ]]; then
             ditto -c -k --keepParent "build/bin/${{ matrix.out }}" "dist/${{ matrix.asset }}"
@@ -82,7 +119,9 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: build
+    needs: [prepare, build]
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
     runs-on: ubuntu-24.04
     # Create a "release" environment (Settings → Environments) holding the
     # UPDATE_SIGNING_KEY secret, optionally with required reviewers.
@@ -119,6 +158,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           pre=""
-          [[ "$GITHUB_REF_NAME" == *-* ]] && pre="--prerelease"
-          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
-            --title "TSG Embroidery Pro $GITHUB_REF_NAME" --generate-notes --verify-tag $pre
+          [[ "$TAG" == *-* ]] && pre="--prerelease"
+          # creates the tag on this commit
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "TSG Embroidery Pro $TAG" --generate-notes $pre
