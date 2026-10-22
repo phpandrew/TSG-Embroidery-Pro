@@ -24,7 +24,10 @@ import (
 var assets embed.FS
 
 // wailsUI implements app.UI on top of the Wails runtime.
-type wailsUI struct{ ctx context.Context }
+type wailsUI struct {
+	ctx context.Context
+	app *app.App
+}
 
 func (u *wailsUI) OpenFiles(title string, multi, project bool, dir string) ([]string, error) {
 	filters := []wr.FileFilter{{DisplayName: "Tajima DST (*.dst)", Pattern: "*.dst;*.DST"}}
@@ -69,7 +72,19 @@ func (u *wailsUI) Emit(ev string, data any) {
 }
 func (u *wailsUI) SetTitle(t string)  { wr.WindowSetTitle(u.ctx, t) }
 func (u *wailsUI) OpenURL(url string) { wr.BrowserOpenURL(u.ctx, url) }
-func (u *wailsUI) Quit()              { wr.Quit(u.ctx) }
+func (u *wailsUI) Quit() {
+	u.saveWindow()
+	wr.Quit(u.ctx)
+}
+
+// saveWindow remembers the window size and maximised/full-screen state.
+func (u *wailsUI) saveWindow() {
+	if u.ctx == nil || u.app == nil {
+		return
+	}
+	w, h := wr.WindowGetSize(u.ctx)
+	app.SaveWindowState(u.app, w, h, wr.WindowIsMaximised(u.ctx), wr.WindowIsFullscreen(u.ctx))
+}
 
 func buildMenu(emit func(string)) *menu.Menu {
 	m := menu.NewMenu()
@@ -130,16 +145,31 @@ func buildMenu(emit func(string)) *menu.Menu {
 func main() {
 	ui := &wailsUI{}
 	a := app.New(ui)
+	ui.app = a
 
 	startupFile := ""
 	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
 		startupFile = os.Args[1]
 	}
 
+	// reopen the window the way it was left
+	ws := app.WindowState(a)
+	width, height, start := 1480, 940, options.Normal
+	if ws.Width >= 1100 && ws.Height >= 700 {
+		width, height = ws.Width, ws.Height
+	}
+	switch {
+	case ws.Fullscreen:
+		start = options.Fullscreen
+	case ws.Maximised:
+		start = options.Maximised
+	}
+
 	err := wails.Run(&options.App{
 		Title:            version.AppName,
-		Width:            1480,
-		Height:           940,
+		Width:            width,
+		Height:           height,
+		WindowStartState: start,
 		MinWidth:         1100,
 		MinHeight:        700,
 		BackgroundColour: &options.RGBA{R: 246, G: 247, B: 249, A: 255},
@@ -154,8 +184,14 @@ func main() {
 				go func() { _, _ = a.OpenPath(startupFile, true); ui.Emit("state:changed", nil) }()
 			}
 		},
-		OnBeforeClose: func(ctx context.Context) bool { return app.BeforeClose(a) },
-		Bind:          []any{a},
+		OnBeforeClose: func(ctx context.Context) bool {
+			if app.BeforeClose(a) {
+				return true // user cancelled
+			}
+			ui.saveWindow()
+			return false
+		},
+		Bind: []any{a},
 		Windows: &windows.Options{
 			WebviewIsTransparent: false,
 			WindowIsTranslucent:  false,

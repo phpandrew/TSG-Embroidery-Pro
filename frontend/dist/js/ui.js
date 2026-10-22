@@ -38,8 +38,9 @@ export function modal({ title, body, buttons = [{ label: 'OK', kind: 'primary', 
     </div>`;
     const close = v => { back.remove(); document.removeEventListener('keydown', key); resolve(v); };
     const key = e => {
+      if (back !== $('#modalRoot').lastElementChild) return; // a dialog opened on top handles its own keys
       if (e.key === 'Escape') close(null);
-      if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
+      if (e.key === 'Enter' && (e.target.tagName !== 'TEXTAREA' || e.ctrlKey || e.metaKey)) {
         const primary = buttons.findIndex(b => b.kind === 'primary');
         if (primary >= 0) { e.preventDefault(); close(resolveValue(buttons[primary])); }
       }
@@ -51,7 +52,7 @@ export function modal({ title, body, buttons = [{ label: 'OK', kind: 'primary', 
     document.addEventListener('keydown', key);
     $('#modalRoot').appendChild(back);
     if (onOpen) onOpen(back);
-    const f = back.querySelector('input, select');
+    const f = back.querySelector('textarea, input, select');
     if (f) { f.focus(); if (f.select) f.select(); }
   });
 }

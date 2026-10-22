@@ -233,7 +233,11 @@ function letteringPanel(root) {
     v.fonts.map(opt).join('') + (favs.length ? '</optgroup>' : '');
   const thrOpts = v.threads.map(t => `<option value="${t.id}">${esc(t.name)} — needle ${t.needle}</option>`).join('');
   s.insertAdjacentHTML('beforeend', `<div class="form">
-    <label class="f">Text<input class="inp" id="lt-text" value="${esc(spec.text)}" placeholder="e.g. ANDREW" maxlength="200"></label>
+    <label class="f">Text <span class="muted">(Enter for a new line)</span><textarea class="inp" id="lt-text" rows="2" placeholder="e.g. ANDREW" maxlength="400">${esc(spec.text)}</textarea></label>
+    <div class="two ml-only">
+      <label class="f">Line spacing (% of height)<input class="inp" id="lt-ls" type="number" step="5" min="80" max="400" value="${spec.lineSpacing || 150}"></label>
+      <label class="f">Align<select class="inp" id="lt-align"><option value="center">Centre</option><option value="left">Left</option><option value="right">Right</option></select></label>
+    </div>
     <label class="f">Font<div class="font-row"><select class="inp" id="lt-font">${fontOpts}</select>
       <button type="button" class="btn btn-ghost btn-sm" id="lt-browse" style="height:38px">${icon('grid', 15)} Browse…</button></div></label>
     <div class="two">
@@ -275,6 +279,15 @@ function letteringPanel(root) {
     s.querySelector('.sys-only').style.display = kind === 'windows' ? '' : 'none';
   }
   s.querySelector('#lt-style').value = spec.style || 'fill';
+  s.querySelector('#lt-align').value = spec.align || 'center';
+  const txt = s.querySelector('#lt-text');
+  const fitText = () => {
+    const n = txt.value.split('\n').length;
+    txt.rows = Math.min(Math.max(n, 2), 8);
+    s.querySelector('.ml-only').style.display = n > 1 ? '' : 'none';
+  };
+  txt.addEventListener('input', fitText);
+  fitText();
   showFor(v.fonts.find(x => x.name === fontSel.value));
   s.querySelector('#lt-browse').onclick = async () => {
     const f = await openFontGallery({ text: s.querySelector('#lt-text').value, current: fontSel.value });
@@ -293,6 +306,8 @@ function letteringPanel(root) {
     density: parseFloat(s.querySelector('#lt-den').value) * 10,
     style: s.querySelector('#lt-style').value,
     fillAngle: parseFloat(s.querySelector('#lt-angle').value) || 0,
+    lineSpacing: parseFloat(s.querySelector('#lt-ls').value) || 150,
+    align: s.querySelector('#lt-align').value,
   });
   s.querySelector('#lt-add').onclick = async () => {
     const sp = read();
@@ -304,7 +319,8 @@ function letteringPanel(root) {
   };
   const up = s.querySelector('#lt-update');
   if (up) up.onclick = () => run(() => api.UpdateLettering(d.id, read()));
-  s.querySelector('#lt-text').addEventListener('keydown', e => { if (e.key === 'Enter') (up || s.querySelector('#lt-add')).click(); });
+  // Enter = new line; Ctrl+Enter = add / update
+  s.querySelector('#lt-text').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); (up || s.querySelector('#lt-add')).click(); } });
 
   section(root, 'About lettering', `<p class="hint"><b>Embroidery fonts</b> (from the Ink/Stitch library) are professionally digitized: best quality, use them near their listed size; resizing rebuilds density automatically.<br>
     <b>Windows fonts</b> are any installed TrueType/OpenType font, auto-digitized as a tatami fill (or outline). Best for bold, block or varsity styles from about 15 mm; thin and script fonts don't fill well.<br>

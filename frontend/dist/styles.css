@@ -259,6 +259,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; border: 1px
 .form { display: grid; gap: 10px; }
 .form label.f { display: grid; gap: 4px; font-size: 13px; color: #3a4252; }
 .form .inp, .form select.inp { width: 100%; min-width: 0; height: 38px; border: 1px solid #d5d9df; border-radius: 6px; padding: 0 10px; background: #fff; outline: none; font-size: 14.5px; user-select: text; }
+.form textarea.inp { height: auto; min-height: 38px; padding: 8px 10px; resize: vertical; font-family: inherit; line-height: 1.35; }
 .form .inp:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(22,104,227,.15); }
 .form .two { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 10px; }
 .form label.f { min-width: 0; }

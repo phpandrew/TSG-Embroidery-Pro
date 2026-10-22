@@ -5,6 +5,7 @@ import { $, $$, esc, fmt, mm, toast, modal, prompt, contextMenu, numField, hydra
 import { renderProps } from './panels.js';
 import { openWorksheet, openSequenceGrid } from './worksheet.js';
 import { openColorBlockPrint } from './print.js';
+import { openFontGallery } from './fontgallery.js';
 
 // ---------------------------------------------------------------- state
 export const S = {
@@ -540,14 +541,28 @@ export const actions = {
   quickText: async () => {
     const v = S.view;
     const fonts = v.fonts.map(f => `<option value="${esc(f.name)}">${esc(f.name)}</option>`).join('');
+    const setFont = (b, name) => {
+      const f = v.fonts.find(x => x.name === name);
+      b.querySelector('#q-font').value = name;
+      if (f && f.native) b.querySelector('#q-h').value = (f.native / 10).toFixed(1); // digitized fonts sew best at their own size
+    };
     const spec = await modal({
       title: 'Add lettering',
       body: `<div class="form">
-        <label class="f">Text<input class="inp" id="q-text" placeholder="e.g. ANDREW" maxlength="200"></label>
-        <div class="two">
-          <label class="f">Font<select class="inp" id="q-font">${fonts}</select></label>
-          <label class="f">Cap height (mm)<input class="inp" id="q-h" type="number" min="3" max="300" step="0.5" value="18"></label>
-        </div></div>`,
+        <label class="f">Text <span class="muted">(Enter for a new line)</span><textarea class="inp" id="q-text" rows="3" placeholder="e.g. ANDREW" maxlength="400"></textarea></label>
+        <label class="f">Font<div class="font-row"><select class="inp" id="q-font">${fonts}</select>
+          <button type="button" class="btn btn-ghost btn-sm" id="q-browse" style="height:38px">${icon('grid', 15)} Browse…</button></div></label>
+        <label class="f">Cap height (mm)<input class="inp" id="q-h" type="number" min="3" max="300" step="0.5" value="18"></label>
+        </div>`,
+      onOpen: b => {
+        if (S.lastSpec && S.lastSpec.font) setFont(b, S.lastSpec.font);
+        b.querySelector('#q-font').onchange = e => setFont(b, e.target.value);
+        b.querySelector('#q-browse').onclick = async () => {
+          const f = await openFontGallery({ text: b.querySelector('#q-text').value.split('\n')[0], current: b.querySelector('#q-font').value });
+          if (f) setFont(b, f.name);
+          b.querySelector('#q-text').focus();
+        };
+      },
       buttons: [{ label: 'Cancel', value: null }, {
         label: 'Add', kind: 'primary',
         value: b => ({ text: b.querySelector('#q-text').value, font: b.querySelector('#q-font').value, height: parseFloat(b.querySelector('#q-h').value) * 10, spacing: 0, weight: 17, density: 4 }),

@@ -47,6 +47,16 @@ type Prefs struct {
 	FavoriteFonts    []string `json:"favoriteFonts"`
 	// Machine is the last machine settings and hoop used; new designs start with it.
 	Machine *document.Settings `json:"machine,omitempty"`
+	// Window is how the main window was left when the app last closed.
+	Window *WindowPrefs `json:"window,omitempty"`
+}
+
+// WindowPrefs is the main window's size and state, restored at launch.
+type WindowPrefs struct {
+	Width      int  `json:"width"` // normal (not maximised) size
+	Height     int  `json:"height"`
+	Maximised  bool `json:"maximised"`
+	Fullscreen bool `json:"fullscreen"`
 }
 
 // App is bound to the frontend.
@@ -128,6 +138,33 @@ func Startup(a *App, ctx context.Context) {
 }
 
 // BeforeClose asks about unsaved work. Returning true cancels closing.
+// WindowState returns the window size/state saved at the last close.
+func WindowState(a *App) WindowPrefs {
+	a.prefsMu.Lock()
+	defer a.prefsMu.Unlock()
+	if a.prefs.Window == nil {
+		return WindowPrefs{}
+	}
+	return *a.prefs.Window
+}
+
+// SaveWindowState records the window state as the app closes. The normal
+// size is only updated when the window isn't maximised or full screen.
+func SaveWindowState(a *App, w, h int, maximised, fullscreen bool) {
+	a.prefsMu.Lock()
+	ws := WindowPrefs{}
+	if a.prefs.Window != nil {
+		ws = *a.prefs.Window
+	}
+	ws.Maximised, ws.Fullscreen = maximised, fullscreen
+	if !maximised && !fullscreen && w > 0 && h > 0 {
+		ws.Width, ws.Height = w, h
+	}
+	a.prefs.Window = &ws
+	a.prefsMu.Unlock()
+	a.savePrefs()
+}
+
 func BeforeClose(a *App) bool {
 	if a.ed.Dirty() {
 		return !a.ui.Confirm("Unsaved changes", "Discard unsaved changes and quit?")
@@ -545,6 +582,7 @@ func (a *App) SetPrefs(p Prefs) Prefs {
 	if p.Machine == nil {
 		p.Machine = a.prefs.Machine
 	}
+	p.Window = a.prefs.Window
 	a.prefs = p
 	a.prefsMu.Unlock()
 	a.savePrefs()

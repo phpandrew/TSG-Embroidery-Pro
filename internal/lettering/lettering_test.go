@@ -77,3 +77,38 @@ func TestLoadFSBuiltinStyle(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMultiLineLayout(t *testing.T) {
+	r := NewRegistry()
+	one, err := r.Layout(Spec{Text: "AB", Font: "Block", Height: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := r.Layout(Spec{Text: "AB\nAB", Font: "Block", Height: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b1, b2 := pattern.Bounds(one.Stitches), pattern.Bounds(two.Stitches)
+	if h1, h2 := b1.MaxY-b1.MinY, b2.MaxY-b2.MinY; h2 < h1+140 || h2 > h1+160 {
+		t.Fatalf("two lines should be one height + 150%% gap: %.0f vs %.0f", h1, h2)
+	}
+	if w1, w2 := b1.MaxX-b1.MinX, b2.MaxX-b2.MinX; abs(w1-w2) > 1 {
+		t.Fatalf("same text per line should be same width: %.0f vs %.0f", w1, w2)
+	}
+	if got := Lines("\n  TEAM \r\nCAPTAIN\n\n"); len(got) != 2 || got[0] != "  TEAM" || got[1] != "CAPTAIN" {
+		t.Fatalf("Lines = %q", got)
+	}
+	// left vs right alignment of a short line under a long one
+	l, _ := r.Layout(Spec{Text: "ABCD\nA", Font: "Block", Height: 100, Align: "left"})
+	rr, _ := r.Layout(Spec{Text: "ABCD\nA", Font: "Block", Height: 100, Align: "right"})
+	if pattern.Bounds(l.Stitches) != pattern.Bounds(rr.Stitches) {
+		t.Fatal("alignment should not change the overall size")
+	}
+}
+
+func abs(f float64) float64 {
+	if f < 0 {
+		return -f
+	}
+	return f
+}

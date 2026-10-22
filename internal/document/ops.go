@@ -385,7 +385,7 @@ func (e *Editor) AddLettering(spec lettering.Spec) (string, string, error) {
 			warn = strings.TrimSpace(warn + " Missing glyphs: " + strings.Join(res.Missing, " "))
 		}
 		ds := &Design{
-			ID: d.newID("d"), Name: strings.TrimSpace(spec.Text), Kind: KindLettering, Visible: true,
+			ID: d.newID("d"), Name: letteringName(spec.Text), Kind: KindLettering, Visible: true,
 			Blocks:    letteringBlocks(d, res, nil),
 			Lettering: &spec,
 		}
@@ -422,7 +422,7 @@ func (e *Editor) UpdateLettering(id string, spec lettering.Spec) (string, error)
 		}
 		ds.Blocks = letteringBlocks(d, res, ds.Blocks)
 		ds.Lettering = &spec
-		ds.Name = strings.TrimSpace(spec.Text)
+		ds.Name = letteringName(spec.Text)
 		return nil
 	})
 	return warn, err
@@ -568,4 +568,9 @@ func (e *Editor) SnapToPrevious(id string) error {
 		ds.T.Y += ey - sy
 		return nil
 	})
+}
+
+// letteringName is the design-list name for lettering: lines joined by " / ".
+func letteringName(text string) string {
+	return strings.Join(lettering.Lines(text), " / ")
 }

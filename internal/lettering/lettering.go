@@ -40,6 +40,25 @@ type Spec struct {
 	OutlineWidth float64 `json:"outlineWidth,omitempty"` // installed fonts: satin border width, 0.1 mm
 	DensityPct   float64 `json:"densityPct"`             // digitized fonts: % of native density (default 100)
 	TrimAbove    float64 `json:"trimAbove"`              // trim jumps longer than this, 0.1 mm, default 40
+	LineSpacing  float64 `json:"lineSpacing,omitempty"`  // multi-line: baseline-to-baseline as % of height, default 150
+	Align        string  `json:"align,omitempty"`        // multi-line: left | center (default) | right
+}
+
+// Lines splits lettering text into lines: line breaks are kept, trailing
+// spaces dropped, and empty lines at the start and end removed.
+func Lines(text string) []string {
+	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
+	var out []string
+	for _, l := range strings.Split(text, "\n") {
+		out = append(out, strings.TrimRight(l, " \t"))
+	}
+	for len(out) > 0 && strings.TrimSpace(out[0]) == "" {
+		out = out[1:]
+	}
+	for len(out) > 0 && strings.TrimSpace(out[len(out)-1]) == "" {
+		out = out[:len(out)-1]
+	}
+	return out
 }
 
 // Font produces glyph stitches at a requested height.
@@ -228,62 +247,98 @@ func (r *Registry) Layout(s Spec) (Result, error) {
 		res.Colors = c.Colors()
 	}
 	var blocks [][]pattern.St
-	penX := 0.0
-	var prev rune
 	missing := map[rune]bool{}
-	for _, ch := range text {
-		if ch == ' ' {
-			if ws, ok := f.(wordSpacer); ok && ws.WordSpace() > 0 {
-				penX += ws.WordSpace()*k + s.Spacing
-			} else {
-				penX += s.Height*0.35 + s.Spacing
-			}
-			prev = 0
-			continue
-		}
-		g, adv, ok := f.Glyph(ch, s)
-		if !ok {
-			missing[ch] = true
-			penX += s.Height * 0.3
-			prev = 0
-			continue
-		}
-		if kn, ok := f.(kerner); ok && prev != 0 {
-			penX -= kn.Kern(prev, ch) * k
-		} else if sf, ok := f.(*sysFont); ok && prev != 0 {
-			penX -= sf.kernAt(prev, ch, s.Height)
-		}
-		// split the glyph by colour; colour i of every letter goes to block i
-		ci := 0
-		var seg []pattern.St
-		flush := func() {
-			if pattern.Count(seg).Stitches == 0 {
-				seg = nil
-				return
-			}
-			for len(blocks) <= ci {
-				blocks = append(blocks, nil)
-			}
-			if seg[0].Cmd == pattern.Stitch {
-				seg = append([]pattern.St{{X: seg[0].X, Y: seg[0].Y, Cmd: pattern.Jump}}, seg...)
-			}
-			blocks[ci] = append(blocks[ci], seg...)
-			seg = nil
-		}
-		for _, st := range g {
-			if st.Cmd == pattern.ColorChange || st.Cmd == pattern.Stop {
-				flush()
-				ci++
+	lineGap := s.Height * 1.5
+	if s.LineSpacing > 0 {
+		lineGap = s.Height * s.LineSpacing / 100
+	}
+	for li, line := range Lines(text) {
+		// one line: colour i of every letter goes to lb[i]
+		var lb [][]pattern.St
+		penX := 0.0
+		var prev rune
+		for _, ch := range line {
+			if ch == ' ' {
+				if ws, ok := f.(wordSpacer); ok && ws.WordSpace() > 0 {
+					penX += ws.WordSpace()*k + s.Spacing
+				} else {
+					penX += s.Height*0.35 + s.Spacing
+				}
+				prev = 0
 				continue
 			}
-			if st.Cmd == pattern.Stitch || st.Cmd == pattern.Jump {
-				st.X += penX
+			g, adv, ok := f.Glyph(ch, s)
+			if !ok {
+				missing[ch] = true
+				penX += s.Height * 0.3
+				prev = 0
+				continue
 			}
-			seg = append(seg, st)
+			if kn, ok := f.(kerner); ok && prev != 0 {
+				penX -= kn.Kern(prev, ch) * k
+			} else if sf, ok := f.(*sysFont); ok && prev != 0 {
+				penX -= sf.kernAt(prev, ch, s.Height)
+			}
+			// split the glyph by colour; colour i of every letter goes to block i
+			ci := 0
+			var seg []pattern.St
+			flush := func() {
+				if pattern.Count(seg).Stitches == 0 {
+					seg = nil
+					return
+				}
+				for len(lb) <= ci {
+					lb = append(lb, nil)
+				}
+				if seg[0].Cmd == pattern.Stitch {
+					seg = append([]pattern.St{{X: seg[0].X, Y: seg[0].Y, Cmd: pattern.Jump}}, seg...)
+				}
+				lb[ci] = append(lb[ci], seg...)
+				seg = nil
+			}
+			for _, st := range g {
+				if st.Cmd == pattern.ColorChange || st.Cmd == pattern.Stop {
+					flush()
+					ci++
+					continue
+				}
+				if st.Cmd == pattern.Stitch || st.Cmd == pattern.Jump {
+					st.X += penX
+				}
+				seg = append(seg, st)
+			}
+			flush()
+			penX += adv + s.Spacing
+			prev = ch
 		}
-		flush()
-		penX += adv + s.Spacing
-		prev = ch
+		// align the line, then drop it below the previous one
+		lr := pattern.EmptyRect()
+		for _, b := range lb {
+			lr.Union(pattern.Bounds(b))
+		}
+		if lr.Empty() {
+			continue
+		}
+		dx := -lr.CenterX()
+		switch s.Align {
+		case "left":
+			dx = -lr.MinX
+		case "right":
+			dx = -lr.MaxX
+		}
+		dy := float64(li) * lineGap
+		for i, b := range lb {
+			for j := range b {
+				if b[j].Cmd == pattern.Stitch || b[j].Cmd == pattern.Jump {
+					b[j].X += dx
+					b[j].Y += dy
+				}
+			}
+			for len(blocks) <= i {
+				blocks = append(blocks, nil)
+			}
+			blocks[i] = append(blocks[i], b...)
+		}
 	}
 	for ch := range missing {
 		res.Missing = append(res.Missing, string(ch))
