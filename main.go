@@ -152,6 +152,8 @@ func buildMenu(emit func(string)) *menu.Menu {
 	item(tools, "Remove small stitches…", nil, "removeSmall")
 	item(tools, "Combine same-colour blocks", nil, "combine")
 	item(tools, "Machine settings…", nil, "production")
+	tools.AddSeparator()
+	item(tools, "Settings…", keys.CmdOrCtrl(","), "settings")
 
 	help := m.AddSubmenu("Help")
 	item(help, "Check for updates…", nil, "checkUpdates")

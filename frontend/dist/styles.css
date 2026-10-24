@@ -406,3 +406,15 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; border: 1px
 .canvas-card { border-top-left-radius: 0; }
 .watch-dir { font-size: 13px; display: flex; gap: 6px; align-items: baseline; min-width: 0; }
 .watch-dir code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: #f1f3f6; padding: 2px 6px; border-radius: 4px; }
+
+/* settings window */
+.settings-modal { width: min(640px, calc(100vw - 32px)); }
+.settings .set-sec { padding: 4px 0 16px; border-bottom: 1px solid var(--line); margin-bottom: 14px; display: flex; flex-direction: column; gap: 8px; }
+.settings .set-sec:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+.settings h4 { margin: 0 0 2px; font-size: 15px; }
+.settings .check { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.settings .set-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.settings .set-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: #f1f3f6; padding: 6px 8px; border-radius: 5px; font-size: 13px; }
+.settings .set-status { margin: 0; font-size: 12.5px; color: #3b6b3b; background: #f1f8f1; border-radius: 5px; padding: 6px 8px; }
+.settings .hint { margin: 0; }
+.tb-settings { margin-right: 8px; }

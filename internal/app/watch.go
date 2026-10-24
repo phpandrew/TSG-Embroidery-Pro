@@ -2,9 +2,11 @@ package app
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/phpandrew/TSG-Embroidery-Pro/internal/applog"
@@ -37,6 +39,19 @@ type watcher struct {
 	stop   chan struct{}
 	onOne  func(path string)
 	onMany func(paths []string)
+
+	mu       sync.Mutex
+	started  time.Time
+	lastScan time.Time
+	files    int    // DST files currently in the folder
+	scanErr  string // last folder read error
+	last     string // last thing that happened, for the settings window
+}
+
+func (w *watcher) note(format string, args ...any) {
+	w.mu.Lock()
+	w.last = time.Now().Format("15:04") + " " + fmt.Sprintf(format, args...)
+	w.mu.Unlock()
 }
 
 func isDST(name string) bool {
@@ -47,10 +62,14 @@ func isDST(name string) bool {
 // minutes (a freshly unzipped folder), one level deep.
 func (w *watcher) scan() map[string]fileSig {
 	out := map[string]fileSig{}
-	entries, err := os.ReadDir(w.dir)
+	entries, err := os.ReadDir(w.dir) // on error, still use whatever was read
+	w.mu.Lock()
+	w.lastScan = time.Now()
+	w.scanErr = ""
 	if err != nil {
-		return out
+		w.scanErr = err.Error()
 	}
+	w.mu.Unlock()
 	recent := time.Now().Add(-5 * time.Minute)
 	add := func(dir string, e os.DirEntry) {
 		if !isDST(e.Name()) {
@@ -78,10 +97,16 @@ func (w *watcher) scan() map[string]fileSig {
 		}
 		add(w.dir, e)
 	}
+	w.mu.Lock()
+	w.files = len(out)
+	w.mu.Unlock()
 	return out
 }
 
 func (w *watcher) run() {
+	w.mu.Lock()
+	w.started = time.Now()
+	w.mu.Unlock()
 	seen := w.scan() // files already there are never opened
 	pending := map[string]*pendingFile{}
 	var lastNew time.Time
@@ -95,8 +120,11 @@ func (w *watcher) run() {
 		}
 		cur := w.scan()
 		for p, sig := range cur {
-			if _, ok := seen[p]; ok {
-				continue
+			if old, ok := seen[p]; ok {
+				if old == sig {
+					continue
+				}
+				delete(seen, p) // replaced by a new copy with the same name: treat as new
 			}
 			if pf, ok := pending[p]; ok {
 				if pf.sig == sig {
@@ -139,8 +167,10 @@ func (w *watcher) run() {
 		}
 		pending = map[string]*pendingFile{}
 		if len(paths) == 1 {
+			w.note("opened %s", filepath.Base(paths[0]))
 			w.onOne(paths[0])
 		} else {
+			w.note("%d files arrived together - not opened", len(paths))
 			w.onMany(paths)
 		}
 	}
@@ -230,6 +260,34 @@ type AutoPrefs struct {
 	WatchEnabled     bool   `json:"watchEnabled"`
 	WatchDir         string `json:"watchDir"`
 	WatchIsDefault   bool   `json:"watchIsDefault"`
+	WatchStatus      string `json:"watchStatus"` // live status line
+}
+
+// watchStatus describes what the watcher is doing right now.
+func (a *App) watchStatus(enabled bool, dir string) string {
+	if !enabled {
+		return "Off"
+	}
+	a.watchMu.Lock()
+	w := a.watch
+	a.watchMu.Unlock()
+	if w == nil {
+		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+			return "Not running: the folder can't be found"
+		}
+		return "Not running"
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.scanErr != "" {
+		return "Can't read the folder: " + w.scanErr
+	}
+	st := fmt.Sprintf("Running since %s · %d DST file(s) in the folder · checked %s",
+		w.started.Format("15:04"), w.files, w.lastScan.Format("15:04:05"))
+	if w.last != "" {
+		st += " · last: " + w.last
+	}
+	return st
 }
 
 func (a *App) GetAutoPrefs() AutoPrefs {
@@ -245,6 +303,7 @@ func (a *App) GetAutoPrefs() AutoPrefs {
 		p.StartWithWindows = runAtStartup()
 	}
 	p.WatchDir = a.watchDir()
+	p.WatchStatus = a.watchStatus(p.WatchEnabled, p.WatchDir)
 	return p
 }
 

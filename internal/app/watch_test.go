@@ -63,3 +63,17 @@ func TestWatchIgnoresBatch(t *testing.T) {
 		t.Fatalf("ones=%v manys=%v", ones, manys)
 	}
 }
+
+func TestWatchOpensReplacedFile(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "order.dst")
+	write(t, p)
+	_, got := runWatcher(t, dir)
+	if err := os.WriteFile(p, []byte("a different, longer design file body"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(600 * time.Millisecond)
+	if ones, _ := got(); len(ones) != 1 {
+		t.Fatalf("replacing a file with a new copy should open it, got %v", ones)
+	}
+}

@@ -6,6 +6,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -45,6 +46,7 @@ func main() {
 	}
 
 	a := app.New(headless{})
+	app.Startup(a, context.Background())
 	for i, p := range opens {
 		if _, err := a.OpenPath(p, i == 0); err != nil {
 			log.Fatalf("open %s: %v", p, err)
