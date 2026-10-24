@@ -26,11 +26,13 @@ func (headless) OpenFiles(string, bool, bool, string) ([]string, error) {
 func (headless) SaveFile(string, string, string, string) (string, error) {
 	return "", errors.New("save dialogs are not available in the dev server")
 }
-func (headless) Confirm(string, string) bool { return true }
-func (headless) Emit(string, any)            {}
-func (headless) SetTitle(string)             {}
-func (headless) OpenURL(u string)            { log.Println("open url:", u) }
-func (headless) Quit()                       {}
+func (headless) Confirm(string, string) bool               { return true }
+func (headless) Emit(string, any)                          {}
+func (headless) SetTitle(string)                           {}
+func (headless) OpenURL(u string)                          { log.Println("open url:", u) }
+func (headless) Quit()                                     {}
+func (headless) PickFolder(string, string) (string, error) { return "", nil }
+func (headless) Focus()                                    {}
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:34115", "listen address (keep it on localhost)")

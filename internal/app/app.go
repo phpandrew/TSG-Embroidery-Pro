@@ -35,6 +35,8 @@ type UI interface {
 	SetTitle(title string)
 	OpenURL(url string)
 	Quit()
+	PickFolder(title, dir string) (string, error)
+	Focus() // bring the window to the front
 }
 
 // Prefs are per-user app preferences (not saved in projects).
@@ -49,6 +51,12 @@ type Prefs struct {
 	Machine *document.Settings `json:"machine,omitempty"`
 	// Window is how the main window was left when the app last closed.
 	Window *WindowPrefs `json:"window,omitempty"`
+	// StartWithWindows launches the app (minimised) when the user signs in.
+	StartWithWindows bool `json:"startWithWindows"`
+	// WatchEnabled opens a new DST file as soon as it lands in WatchDir
+	// (default: the Downloads folder).
+	WatchEnabled bool   `json:"watchEnabled"`
+	WatchDir     string `json:"watchDir"`
 }
 
 // WindowPrefs is the main window's size and state, restored at launch.
@@ -63,7 +71,13 @@ type WindowPrefs struct {
 type App struct {
 	ctx     context.Context
 	ui      UI
-	ed      *document.Editor
+	fonts   *lettering.Registry
+	tabsMu  sync.Mutex
+	tabs    []*tab
+	active  int
+	nextTab int
+	watch   *watcher
+	watchMu sync.Mutex
 	upd     *updater.Updater
 	prefs   Prefs
 	prefsMu sync.Mutex
@@ -92,15 +106,13 @@ func New(ui UI) *App {
 	}
 	a := &App{
 		ui:     ui,
-		ed:     document.NewEditor(fonts),
+		fonts:  fonts,
 		upd:    updater.New(version.Repo, version.Version),
-		prefs:  Prefs{AutoCheckUpdates: true},
+		prefs:  Prefs{AutoCheckUpdates: true, WatchEnabled: true},
 		cfgDir: cfg,
 	}
 	a.loadPrefs()
-	if a.prefs.Machine != nil {
-		a.ed.SetDefaults(*a.prefs.Machine)
-	}
+	a.addTab(a.newEditor())
 	// installed TrueType/OpenType fonts: names only, outlines load on use
 	go func() {
 		n := fonts.LoadSystemFonts(lettering.SystemFontDirs())
@@ -121,6 +133,8 @@ func SetUI(a *App, ui UI) { a.ui = ui }
 // Startup is called by Wails when the window is ready.
 func Startup(a *App, ctx context.Context) {
 	a.ctx = ctx
+	a.syncStartup()
+	a.restartWatch()
 	go func() {
 		if !a.prefs.AutoCheckUpdates {
 			return
@@ -157,7 +171,7 @@ func SaveWindowState(a *App, w, h int, maximised, fullscreen bool) {
 		ws = *a.prefs.Window
 	}
 	ws.Maximised, ws.Fullscreen = maximised, fullscreen
-	if !maximised && !fullscreen && w > 0 && h > 0 {
+	if !maximised && !fullscreen && w >= 1100 && h >= 700 { // ignore minimised sizes
 		ws.Width, ws.Height = w, h
 	}
 	a.prefs.Window = &ws
@@ -166,17 +180,15 @@ func SaveWindowState(a *App, w, h int, maximised, fullscreen bool) {
 }
 
 func BeforeClose(a *App) bool {
-	if a.ed.Dirty() {
-		return !a.ui.Confirm("Unsaved changes", "Discard unsaved changes and quit?")
-	}
-	return false
+	return !a.confirmQuit("quit")
 }
 
 func (a *App) view(err error) (document.View, error) {
 	if err != nil {
 		applog.Errorf("%v", err)
 	}
-	v := a.ed.State()
+	v := a.cur().State()
+	v.Tabs, v.TabID = a.tabInfos()
 	title := version.AppName
 	if v.Title != "" {
 		mark := ""
@@ -235,30 +247,19 @@ func (a *App) State() document.View { v, _ := a.view(nil); return v }
 
 // ---- files ---------------------------------------------------------------
 
-func (a *App) confirmDiscard() bool {
-	return !a.ed.Dirty() || a.ui.Confirm("Unsaved changes", "Discard unsaved changes?")
-}
+// NewDocument starts a new design in its own tab.
+func (a *App) NewDocument() (document.View, error) { return a.NewTab() }
 
-func (a *App) NewDocument() (document.View, error) {
-	if !a.confirmDiscard() {
-		return a.view(nil)
-	}
-	a.ed.Reset()
-	return a.view(nil)
-}
-
-// Open shows a file dialog and replaces the document.
+// Open shows a file dialog and opens the file in a new tab (or the current
+// one if it is blank).
 func (a *App) Open() (document.View, error) {
-	if !a.confirmDiscard() {
-		return a.view(nil)
-	}
 	files, err := a.ui.OpenFiles("Open design or project", false, true, a.dir(false))
 	a.rememberDir(false, files...)
 	if err != nil || len(files) == 0 {
 		return a.view(err)
 	}
 	applog.Infof("open %q", files[0])
-	return a.view(a.ed.OpenFile(files[0]))
+	return a.view(a.openInTab(files[0]))
 }
 
 // Merge adds one or more DST files to the current document.
@@ -269,9 +270,10 @@ func (a *App) Merge() (document.View, error) {
 		return a.view(err)
 	}
 	var errs []string
+	ed := a.cur()
 	for _, f := range files {
 		applog.Infof("merge %q", f)
-		if _, err := a.ed.ImportFile(f); err != nil {
+		if _, err := ed.ImportFile(f); err != nil {
 			errs = append(errs, err.Error())
 		}
 	}
@@ -281,41 +283,39 @@ func (a *App) Merge() (document.View, error) {
 	return a.view(nil)
 }
 
-// OpenPath opens (replace=true) or merges a file by path (drag & drop).
+// OpenPath opens (replace=true, in a tab) or merges a file by path (drag &
+// drop, command line).
 func (a *App) OpenPath(path string, replace bool) (document.View, error) {
 	applog.Infof("open path %q replace=%v", path, replace)
 	a.rememberDir(false, path)
 	if replace {
-		if !a.confirmDiscard() {
-			return a.view(nil)
-		}
-		return a.view(a.ed.OpenFile(path))
+		return a.view(a.openInTab(path))
 	}
-	_, err := a.ed.ImportFile(path)
+	_, err := a.cur().ImportFile(path)
 	return a.view(err)
 }
 
 func (a *App) Save() (document.View, error) {
-	if p := a.ed.Path(); p != "" {
-		return a.view(a.ed.SaveProject(p))
+	if p := a.cur().Path(); p != "" {
+		return a.view(a.cur().SaveProject(p))
 	}
 	return a.SaveAs()
 }
 
 func (a *App) SaveAs() (document.View, error) {
-	name := a.ed.State().Title
+	name := a.cur().State().Title
 	name = strings.TrimSuffix(name, filepath.Ext(name))
 	p, err := a.ui.SaveFile("Save project", name+document.ProjectExt, document.ProjectExt, a.dir(true))
 	a.rememberDir(true, p)
 	if err != nil || p == "" {
 		return a.view(err)
 	}
-	return a.view(a.ed.SaveProject(p))
+	return a.view(a.cur().SaveProject(p))
 }
 
 // ExportDST shows a save dialog and writes the merged design. Returns the path.
 func (a *App) ExportDST() (string, error) {
-	name := a.ed.State().Title
+	name := a.cur().State().Title
 	name = strings.TrimSuffix(name, filepath.Ext(name))
 	p, err := a.ui.SaveFile("Export DST", name+".dst", ".dst", a.dir(true))
 	a.rememberDir(true, p)
@@ -325,65 +325,65 @@ func (a *App) ExportDST() (string, error) {
 	if !strings.EqualFold(filepath.Ext(p), ".dst") {
 		p += ".dst"
 	}
-	return p, a.ed.ExportDST(p)
+	return p, a.cur().ExportDST(p)
 }
 
 // ExportDSTTo writes to an explicit path (dev server / batch use).
-func (a *App) ExportDSTTo(path string) error { return a.ed.ExportDST(path) }
+func (a *App) ExportDSTTo(path string) error { return a.cur().ExportDST(path) }
 
 // ---- editing (thin wrappers returning the new view) ------------------------
 
-func (a *App) Undo() (document.View, error) { a.ed.Undo(); return a.view(nil) }
-func (a *App) Redo() (document.View, error) { a.ed.Redo(); return a.view(nil) }
+func (a *App) Undo() (document.View, error) { a.cur().Undo(); return a.view(nil) }
+func (a *App) Redo() (document.View, error) { a.cur().Redo(); return a.view(nil) }
 
 func (a *App) MoveTo(id string, x, y float64) (document.View, error) {
-	return a.view(a.ed.MoveTo(id, x, y))
+	return a.view(a.cur().MoveTo(id, x, y))
 }
 func (a *App) MoveBy(ids []string, dx, dy float64) (document.View, error) {
-	return a.view(a.ed.MoveBy(ids, dx, dy))
+	return a.view(a.cur().MoveBy(ids, dx, dy))
 }
 func (a *App) Rotate(id string, deg float64) (document.View, error) {
-	return a.view(a.ed.Rotate(id, deg))
+	return a.view(a.cur().Rotate(id, deg))
 }
 func (a *App) SetRotation(id string, deg float64) (document.View, error) {
-	return a.view(a.ed.SetRotation(id, deg))
+	return a.view(a.cur().SetRotation(id, deg))
 }
 func (a *App) Mirror(id string, vertical bool) (document.View, error) {
-	return a.view(a.ed.Mirror(id, vertical))
+	return a.view(a.cur().Mirror(id, vertical))
 }
-func (a *App) Center(id string) (document.View, error) { return a.view(a.ed.Center(id)) }
+func (a *App) Center(id string) (document.View, error) { return a.view(a.cur().Center(id)) }
 func (a *App) SetScale(id string, pct float64) (document.View, error) {
-	return a.view(a.ed.SetScale(id, pct))
+	return a.view(a.cur().SetScale(id, pct))
 }
 func (a *App) SetSize(id string, w, h float64, lock bool) (document.View, error) {
-	return a.view(a.ed.SetSize(id, w, h, lock))
+	return a.view(a.cur().SetSize(id, w, h, lock))
 }
 func (a *App) SetBox(id string, cx, cy, w, h float64, lock bool) (document.View, error) {
-	return a.view(a.ed.SetBox(id, cx, cy, w, h, lock))
+	return a.view(a.cur().SetBox(id, cx, cy, w, h, lock))
 }
 func (a *App) SnapToPrevious(id string) (document.View, error) {
-	return a.view(a.ed.SnapToPrevious(id))
+	return a.view(a.cur().SnapToPrevious(id))
 }
 func (a *App) SetVisible(id string, v bool) (document.View, error) {
-	return a.view(a.ed.SetVisible(id, v))
+	return a.view(a.cur().SetVisible(id, v))
 }
-func (a *App) Rename(id, name string) (document.View, error) { return a.view(a.ed.Rename(id, name)) }
-func (a *App) Delete(id string) (document.View, error)       { return a.view(a.ed.Delete(id)) }
+func (a *App) Rename(id, name string) (document.View, error) { return a.view(a.cur().Rename(id, name)) }
+func (a *App) Delete(id string) (document.View, error)       { return a.view(a.cur().Delete(id)) }
 func (a *App) Duplicate(id string) (document.View, error) {
-	_, err := a.ed.Duplicate(id)
+	_, err := a.cur().Duplicate(id)
 	return a.view(err)
 }
 func (a *App) MoveDesign(id string, delta int) (document.View, error) {
-	return a.view(a.ed.MoveDesign(id, delta))
+	return a.view(a.cur().MoveDesign(id, delta))
 }
 func (a *App) MoveBlock(id string, from, to int) (document.View, error) {
-	return a.view(a.ed.MoveBlock(id, from, to))
+	return a.view(a.cur().MoveBlock(id, from, to))
 }
 func (a *App) SetBlockThread(id string, block int, thread string) (document.View, error) {
-	return a.view(a.ed.SetBlockThread(id, block, thread))
+	return a.view(a.cur().SetBlockThread(id, block, thread))
 }
 func (a *App) ReverseBlock(id string, block int) (document.View, error) {
-	return a.view(a.ed.ReverseBlock(id, block))
+	return a.view(a.cur().ReverseBlock(id, block))
 }
 
 // Result pairs a view with a human message (counts, warnings).
@@ -393,20 +393,20 @@ type Result struct {
 }
 
 func (a *App) CombineBlocks(id string) (Result, error) {
-	n, err := a.ed.CombineBlocks(id)
+	n, err := a.cur().CombineBlocks(id)
 	v, err := a.view(err)
 	return Result{v, fmt.Sprintf("Combined %d block(s)", n)}, err
 }
 
 func (a *App) RemoveSmallStitches(id string, minLen float64) (Result, error) {
-	n, err := a.ed.RemoveSmallStitches(id, minLen)
+	n, err := a.cur().RemoveSmallStitches(id, minLen)
 	v, err := a.view(err)
 	return Result{v, fmt.Sprintf("Removed %d small stitch(es)", n)}, err
 }
 
 // AdjustDensity changes stitch density; factor 1.2 = 20% denser.
 func (a *App) AdjustDensity(id string, factor float64) (Result, error) {
-	r, err := a.ed.AdjustDensity(id, factor)
+	r, err := a.cur().AdjustDensity(id, factor)
 	v, err := a.view(err)
 	msg := fmt.Sprintf("Density %.0f%%: %d → %d stitches", factor*100, r.Before, r.After)
 	if !r.Lettering {
@@ -419,17 +419,18 @@ func (a *App) AdjustDensity(id string, factor float64) (Result, error) {
 }
 
 func (a *App) SetThread(t document.Thread) (document.View, error) {
-	_, err := a.ed.SetThread(t)
+	_, err := a.cur().SetThread(t)
 	return a.view(err)
 }
 
 func (a *App) SetSettings(s document.Settings) (document.View, error) {
-	if err := a.ed.SetSettings(s); err != nil {
+	if err := a.cur().SetSettings(s); err != nil {
 		return a.view(err)
 	}
 	// remember hoop and machine settings for the next new design / launch
-	cur := a.ed.Settings()
-	a.ed.SetDefaults(cur)
+	ed := a.cur()
+	cur := ed.Settings()
+	ed.SetDefaults(cur)
 	a.prefsMu.Lock()
 	a.prefs.Machine = &cur
 	a.prefsMu.Unlock()
@@ -444,13 +445,13 @@ type LetteringResult struct {
 }
 
 func (a *App) AddLettering(spec lettering.Spec) (LetteringResult, error) {
-	id, warn, err := a.ed.AddLettering(spec)
+	id, warn, err := a.cur().AddLettering(spec)
 	v, err := a.view(err)
 	return LetteringResult{v, id, warn}, err
 }
 
 func (a *App) UpdateLettering(id string, spec lettering.Spec) (LetteringResult, error) {
-	warn, err := a.ed.UpdateLettering(id, spec)
+	warn, err := a.cur().UpdateLettering(id, spec)
 	v, err := a.view(err)
 	return LetteringResult{v, id, warn}, err
 }
@@ -458,7 +459,7 @@ func (a *App) UpdateLettering(id string, spec lettering.Spec) (LetteringResult, 
 // ---- font gallery --------------------------------------------------------
 
 // Fonts lists every lettering font with metadata for the gallery.
-func (a *App) Fonts() []lettering.FontInfo { return a.ed.Fonts.List() }
+func (a *App) Fonts() []lettering.FontInfo { return a.fonts.List() }
 
 // FontPreview renders text in a font at its native size to a PNG data URL.
 func (a *App) FontPreview(font, text string, width, height int) (string, error) {
@@ -471,11 +472,11 @@ func (a *App) FontPreview(font, text string, width, height int) (string, error) 
 	}
 	width = min(max(width, 80), 1600)
 	height = min(max(height, 30), 800)
-	res, err := a.ed.Fonts.Layout(lettering.Spec{Text: text, Font: font})
+	res, err := a.fonts.Layout(lettering.Spec{Text: text, Font: font})
 	if err != nil || len(res.Missing) > 0 {
 		// font lacks these characters (other script, monogram set): show its own
-		if sample := a.ed.Fonts.SampleText(font); sample != "" {
-			if r2, err2 := a.ed.Fonts.Layout(lettering.Spec{Text: sample, Font: font}); err2 == nil {
+		if sample := a.fonts.SampleText(font); sample != "" {
+			if r2, err2 := a.fonts.Layout(lettering.Spec{Text: sample, Font: font}); err2 == nil {
 				res, err = r2, nil
 			}
 		}
@@ -541,7 +542,7 @@ func (a *App) InstallUpdate() error {
 	if a.pending == nil {
 		return errors.New("no update pending; check first")
 	}
-	if a.ed.Dirty() && !a.ui.Confirm("Unsaved changes", "The app will restart after updating. Discard unsaved changes?") {
+	if !a.confirmQuit("restart to update") {
 		return errors.New("update cancelled")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -572,21 +573,15 @@ func (a *App) GetPrefs() Prefs {
 	return a.prefs
 }
 
+// SetPrefs updates the update-check options (other prefs have their own
+// setters).
 func (a *App) SetPrefs(p Prefs) Prefs {
 	a.prefsMu.Lock()
-	p.LastCheck = a.prefs.LastCheck
-	p.LastOpenDir, p.LastSaveDir = a.prefs.LastOpenDir, a.prefs.LastSaveDir
-	if p.FavoriteFonts == nil {
-		p.FavoriteFonts = a.prefs.FavoriteFonts
-	}
-	if p.Machine == nil {
-		p.Machine = a.prefs.Machine
-	}
-	p.Window = a.prefs.Window
-	a.prefs = p
+	a.prefs.AutoCheckUpdates, a.prefs.Prerelease = p.AutoCheckUpdates, p.Prerelease
+	out := a.prefs
 	a.prefsMu.Unlock()
 	a.savePrefs()
-	return p
+	return out
 }
 
 // dir returns the folder a file dialog should start in (remembered across

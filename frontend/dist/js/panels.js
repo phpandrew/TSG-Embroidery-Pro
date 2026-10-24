@@ -417,6 +417,26 @@ function productionPanel(root) {
   act.innerHTML = `<div class="btn-row"><button class="btn btn-primary btn-sm" data-a="export">${icon('export', 16)} Export DST</button><button class="btn btn-ghost btn-sm" data-a="worksheet">${icon('worksheet', 16)} Worksheet</button><button class="btn btn-ghost btn-sm" data-a="save">Save project</button></div>`;
   act.querySelectorAll('[data-a]').forEach(b => b.onclick = () => actions[b.dataset.a]());
 
+  const ao = section(root, 'Startup & auto-open');
+  const drawAuto = p => {
+    ao.querySelector('.form')?.remove();
+    ao.insertAdjacentHTML('beforeend', `<div class="form">
+      ${p.startupSupported ? `<label class="check"><input type="checkbox" id="ao-start" ${p.startWithWindows ? 'checked' : ''}> Launch when Windows starts <span class="muted">(opens minimised)</span></label>` : ''}
+      <label class="check"><input type="checkbox" id="ao-watch" ${p.watchEnabled ? 'checked' : ''}> Open new DST files automatically</label>
+      <div class="watch-dir"><span class="muted">Watching</span> <code title="${esc(p.watchDir)}">${esc(p.watchDir || '—')}</code></div>
+      <div class="btn-row"><button class="btn btn-ghost btn-sm" id="ao-pick">Change folder…</button>${p.watchIsDefault ? '' : '<button class="btn btn-ghost btn-sm" id="ao-reset">Use Downloads</button>'}</div>
+      <p class="hint">When one new .dst file lands in this folder it opens in a new tab. If several arrive at once (unzipping a batch), none are opened.</p>
+    </div>`);
+    const call = fn => fn().then(drawAuto).catch(e => toast(e.message || String(e), 'err'));
+    const st = ao.querySelector('#ao-start');
+    if (st) st.onchange = () => call(() => api.SetStartWithWindows(st.checked));
+    ao.querySelector('#ao-watch').onchange = e => call(() => api.SetWatch(e.target.checked));
+    ao.querySelector('#ao-pick').onclick = () => call(() => api.ChooseWatchFolder());
+    const rs = ao.querySelector('#ao-reset');
+    if (rs) rs.onclick = () => call(() => api.ResetWatchFolder());
+  };
+  api.GetAutoPrefs().then(drawAuto).catch(() => {});
+
   const u = section(root, 'Updates');
   api.GetPrefs().then(p => {
     u.insertAdjacentHTML('beforeend', `<div class="form">

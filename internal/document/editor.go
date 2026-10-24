@@ -41,6 +41,8 @@ type Editor struct {
 	// few seconds share one undo step
 	liveKey string
 	liveAt  time.Time
+	// source is the DST file this document was opened from, if any
+	source string
 }
 
 func NewEditor(fonts *lettering.Registry) *Editor {
@@ -120,6 +122,14 @@ func (e *Editor) Dirty() bool {
 	return e.dirtyLocked()
 }
 
+// Blank reports a document with nothing in it that was never saved: opening
+// a file can reuse its tab instead of making a new one.
+func (e *Editor) Blank() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.path == "" && len(e.doc.Designs) == 0
+}
+
 // dirtyLocked reports unsaved work. A never-saved document with nothing in
 // it has nothing to lose, even if designs were added and then deleted.
 func (e *Editor) dirtyLocked() bool {
@@ -130,7 +140,7 @@ func (e *Editor) dirtyLocked() bool {
 func (e *Editor) Reset() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.doc, e.undo, e.redo, e.path, e.dirty = newDocWith(e.defaults), nil, nil, "", false
+	e.doc, e.undo, e.redo, e.path, e.dirty, e.source = newDocWith(e.defaults), nil, nil, "", false, ""
 }
 
 // SetDefaults sets the settings new documents start with. If the current
@@ -289,9 +299,24 @@ func (e *Editor) OpenFile(path string) error {
 		return err
 	}
 	e.mu.Lock()
-	e.undo, e.dirty = nil, false
+	e.undo, e.dirty, e.source = nil, false, path
 	e.mu.Unlock()
 	return nil
+}
+
+// Source is the DST file the document was opened from ("" for projects and
+// new documents).
+func (e *Editor) Source() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.source
+}
+
+// Title is the document name shown in the tab.
+func (e *Editor) Title() string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.doc.Name
 }
 
 // ---- project files -------------------------------------------------------

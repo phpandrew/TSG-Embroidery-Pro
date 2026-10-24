@@ -391,3 +391,18 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; border: 1px
 .form .seg.lt-align { display: flex; height: 38px; }
 .form .seg.lt-align button { flex: 1; padding: 5px 6px; }
 .form .check.sm { font-size: 13px; color: var(--muted, #6b7280); margin-top: 6px; }
+
+/* open-design tabs */
+.doctabs { display: flex; align-items: flex-end; gap: 4px; min-height: 34px; margin-bottom: -8px; padding: 0 4px; overflow-x: auto; scrollbar-width: thin; }
+.doctab { display: flex; align-items: center; gap: 6px; max-width: 220px; height: 32px; padding: 0 6px 0 12px; border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; background: #eceef2; color: #4a5160; font-size: 13.5px; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+.doctab:hover { background: #e4e7ec; }
+.doctab.on { background: #fff; color: var(--text); font-weight: 600; position: relative; z-index: 1; }
+.doctab .dt-name { overflow: hidden; text-overflow: ellipsis; }
+.doctab .dt-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--blue); flex-shrink: 0; }
+.doctab .dt-x { display: grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: 4px; background: none; color: inherit; opacity: .6; padding: 0; }
+.doctab .dt-x:hover { background: rgba(0,0,0,.08); opacity: 1; }
+.doctab-new { height: 28px; width: 28px; border: 0; border-radius: 6px; background: none; color: #4a5160; display: grid; place-items: center; flex-shrink: 0; margin-bottom: 2px; }
+.doctab-new:hover { background: #e4e7ec; }
+.canvas-card { border-top-left-radius: 0; }
+.watch-dir { font-size: 13px; display: flex; gap: 6px; align-items: baseline; min-width: 0; }
+.watch-dir code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: #f1f3f6; padding: 2px 6px; border-radius: 4px; }

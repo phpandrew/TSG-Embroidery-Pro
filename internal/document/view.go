@@ -23,6 +23,15 @@ type View struct {
 	Summary  Summary              `json:"summary"`
 	Fonts    []lettering.FontInfo `json:"fonts"`
 	Sequence []SeqEntry           `json:"sequence"` // needle sequence for the operator
+	Tabs     []TabInfo            `json:"tabs"`     // open documents (filled in by the app)
+	TabID    string               `json:"tabId"`    // the active one
+}
+
+// TabInfo describes one open document for the tab strip.
+type TabInfo struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Dirty bool   `json:"dirty"`
 }
 
 type DesignView struct {

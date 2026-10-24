@@ -53,8 +53,11 @@ window.addEventListener('unhandledrejection', e => logError('unhandled: ' + (e.r
 export function apply(view, opts = {}) {
   if (!view) return;
   normalize(view);
-  const wasAtEnd = S.play.pos >= R.total;
-  const firstLoad = !S.view || (S.view.designs.length === 0 && view.designs.length > 0);
+  const switched = !!S.view && view.tabId !== S.view.tabId; // another tab became active
+  const wasAtEnd = switched || S.play.pos >= R.total;
+  const firstLoad = !S.view || switched || (S.view.designs.length === 0 && view.designs.length > 0);
+  if (switched) { S.sel = null; S.selBlock = null; }
+  if (!Array.isArray(view.tabs)) view.tabs = [];
   S.view = view;
   R.setView(view);
   if (S.sel && !view.designs.some(d => d.id === S.sel)) S.sel = null;
@@ -66,11 +69,32 @@ export function apply(view, opts = {}) {
   if (!S.sel && firstLoad && view.designs.length) S.sel = view.designs[view.designs.length - 1].id;
   if (wasAtEnd || S.play.pos > R.total) S.play.pos = R.total;
   if (firstLoad) R.fit(view.hoop);
+  renderTabs();
   renderSeq();
   if (!opts.keepProps) renderPropsPanel();
   renderPlayer();
   renderChrome();
   redraw();
+}
+
+// ---------------------------------------------------------------- doc tabs
+function renderTabs() {
+  const bar = $('#docTabs');
+  if (!bar) return;
+  const v = S.view;
+  bar.innerHTML = v.tabs.map(t => `<div class="doctab${t.id === v.tabId ? ' on' : ''}" role="tab" data-id="${esc(t.id)}" title="${esc(t.title)}">
+      ${t.dirty ? '<span class="dt-dot" title="Unsaved changes"></span>' : ''}<span class="dt-name">${esc(t.title)}</span>
+      <button class="dt-x" title="Close (Ctrl+W)">${icon('close', 14)}</button></div>`).join('') +
+    `<button class="doctab-new" title="New design (Ctrl+N)">${icon('plus', 16)}</button>`;
+  bar.querySelectorAll('.doctab').forEach(el => {
+    const id = el.dataset.id;
+    el.onclick = () => { if (id !== S.view.tabId) run(() => api.SwitchTab(id)); };
+    el.onauxclick = e => { if (e.button === 1) run(() => api.CloseTab(id)); }; // middle-click closes
+    el.querySelector('.dt-x').onclick = e => { e.stopPropagation(); run(() => api.CloseTab(id)); };
+  });
+  bar.querySelector('.doctab-new').onclick = () => actions.new();
+  const on = bar.querySelector('.doctab.on');
+  if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
 export async function run(fn, okMsg) {
@@ -525,6 +549,11 @@ const needSel = () => { if (!S.sel) { toast('Select a design first'); return fal
 
 export const actions = {
   new: () => run(() => api.NewDocument()),
+  closeTab: () => run(() => api.CloseTab(S.view.tabId)),
+  nextTab: (dir = 1) => {
+    const t = S.view.tabs, i = t.findIndex(x => x.id === S.view.tabId);
+    if (t.length > 1) run(() => api.SwitchTab(t[(i + dir + t.length) % t.length].id));
+  },
   open: () => run(() => api.Open()).then(r => { if (r) { R.fit(S.view.hoop); updateZoomLabel(); redraw(); } }),
   merge: () => run(() => api.Merge()),
   save: () => run(() => api.Save(), 'Project saved'),
@@ -647,15 +676,19 @@ on('files:dropped', async paths => {
 });
 on('update:available', rel => showUpdate(rel));
 on('fonts:changed', () => api.State().then(v => apply(v)));
+on('watch:opened', name => toast(`Opened new download: ${name}`));
+on('watch:many', d => toast(`${d.count} new DST files arrived together in ${d.dir} — open the one you need with Open.`, 'warn'));
+on('watch:error', msg => toast(`Couldn't open the new file: ${msg}`, 'err'));
 
 // ---------------------------------------------------------------- keyboard
 document.addEventListener('keydown', e => {
   const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName);
   if (e.code === 'Space' && !typing) { e.preventDefault(); if (!spaceDown && !e.repeat) { if (S.tool === 'select' && !e.shiftKey) togglePlay(); } spaceDown = true; return; }
+  if (e.ctrlKey && e.key === 'Tab') { e.preventDefault(); actions.nextTab(e.shiftKey ? -1 : 1); return; }
   if (typing) return;
   const ctrl = e.ctrlKey || e.metaKey;
   if (!isDesktop && ctrl) { // the desktop app handles these through native menu accelerators
-    const map = { n: 'new', o: 'open', m: 'merge', s: e.shiftKey ? 'saveAs' : 'save', e: 'export', p: e.shiftKey ? 'printBlocks' : 'worksheet', z: 'undo', y: 'redo', d: 'duplicate', r: 'rotate', t: 'lettering', j: 'toggleJumps', g: 'grid', '0': 'fit', '=': 'zoomIn', '-': 'zoomOut' };
+    const map = { w: 'closeTab', n: 'new', o: 'open', m: 'merge', s: e.shiftKey ? 'saveAs' : 'save', e: 'export', p: e.shiftKey ? 'printBlocks' : 'worksheet', z: 'undo', y: 'redo', d: 'duplicate', r: 'rotate', t: 'lettering', j: 'toggleJumps', g: 'grid', '0': 'fit', '=': 'zoomIn', '-': 'zoomOut' };
     const a = map[e.key.toLowerCase()];
     if (a) { e.preventDefault(); actions[a](); return; }
   }
@@ -672,7 +705,7 @@ document.addEventListener('keyup', e => { if (e.code === 'Space') spaceDown = fa
 
 // ---------------------------------------------------------------- dev-mode menu
 const MENUS = [
-  ['File', [['New', 'new', 'Ctrl+N'], ['Open…', 'open', 'Ctrl+O'], ['Merge…', 'merge', 'Ctrl+M'], '-', ['Save project', 'save', 'Ctrl+S'], ['Save project as…', 'saveAs', 'Ctrl+Shift+S'], ['Export DST…', 'export', 'Ctrl+E'], '-', ['Production worksheet…', 'worksheet', 'Ctrl+P'], ['Print colour block analysis…', 'printBlocks', 'Ctrl+Shift+P']]],
+  ['File', [['New', 'new', 'Ctrl+N'], ['Close tab', 'closeTab', 'Ctrl+W'], ['Open…', 'open', 'Ctrl+O'], ['Merge…', 'merge', 'Ctrl+M'], '-', ['Save project', 'save', 'Ctrl+S'], ['Save project as…', 'saveAs', 'Ctrl+Shift+S'], ['Export DST…', 'export', 'Ctrl+E'], '-', ['Production worksheet…', 'worksheet', 'Ctrl+P'], ['Print colour block analysis…', 'printBlocks', 'Ctrl+Shift+P']]],
   ['Edit', [['Undo', 'undo', 'Ctrl+Z'], ['Redo', 'redo', 'Ctrl+Y'], '-', ['Duplicate', 'duplicate', 'Ctrl+D'], ['Delete', 'delete', 'Del']]],
   ['View', [['Zoom in', 'zoomIn', 'Ctrl+='], ['Zoom out', 'zoomOut', 'Ctrl+-'], ['Fit to hoop', 'fit', 'Ctrl+0'], ['Toggle jumps', 'toggleJumps', 'Ctrl+J'], '-', ['Sequence grid', 'grid', 'Ctrl+G']]],
   ['Design', [['Rotate 90°', 'rotate', 'Ctrl+R'], ['Mirror horizontal', 'mirror'], ['Mirror vertical', 'mirrorV'], ['Center selection', 'center'], ['Center all in hoop', 'centerAll'], '-', ['Add lettering', 'lettering', 'Ctrl+T']]],

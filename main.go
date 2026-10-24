@@ -70,6 +70,24 @@ func (u *wailsUI) Emit(ev string, data any) {
 		wr.EventsEmit(u.ctx, ev, data)
 	}
 }
+func (u *wailsUI) PickFolder(title, dir string) (string, error) {
+	return wr.OpenDirectoryDialog(u.ctx, wr.OpenDialogOptions{Title: title, DefaultDirectory: dir})
+}
+
+// Focus brings the window to the front (e.g. when a watched file opens).
+func (u *wailsUI) Focus() {
+	if u.ctx == nil {
+		return
+	}
+	wr.WindowUnminimise(u.ctx)
+	wr.WindowShow(u.ctx)
+	if u.app != nil && app.WindowState(u.app).Maximised && !wr.WindowIsMaximised(u.ctx) {
+		wr.WindowMaximise(u.ctx)
+	}
+	wr.WindowSetAlwaysOnTop(u.ctx, true)
+	wr.WindowSetAlwaysOnTop(u.ctx, false)
+}
+
 func (u *wailsUI) SetTitle(t string)  { wr.WindowSetTitle(u.ctx, t) }
 func (u *wailsUI) OpenURL(url string) { wr.BrowserOpenURL(u.ctx, url) }
 func (u *wailsUI) Quit() {
@@ -94,6 +112,7 @@ func buildMenu(emit func(string)) *menu.Menu {
 	file := m.AddSubmenu("File")
 	item(file, "New", keys.CmdOrCtrl("n"), "new")
 	item(file, "Open…", keys.CmdOrCtrl("o"), "open")
+	item(file, "Close tab", keys.CmdOrCtrl("w"), "closeTab")
 	item(file, "Merge…", keys.CmdOrCtrl("m"), "merge")
 	file.AddSeparator()
 	item(file, "Save project", keys.CmdOrCtrl("s"), "save")
@@ -158,7 +177,15 @@ func main() {
 	if ws.Width >= 1100 && ws.Height >= 700 {
 		width, height = ws.Width, ws.Height
 	}
+	startedByWindows := false
+	for _, arg := range os.Args[1:] {
+		if arg == app.StartupFlag {
+			startedByWindows = true
+		}
+	}
 	switch {
+	case startedByWindows:
+		start = options.Minimised // sit in the taskbar until a design arrives
 	case ws.Fullscreen:
 		start = options.Fullscreen
 	case ws.Maximised:
