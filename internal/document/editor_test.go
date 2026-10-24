@@ -229,3 +229,33 @@ func TestLetteringAlignAnchorsEdge(t *testing.T) {
 		}
 	}
 }
+
+func TestEmptyUnsavedDocIsNotDirty(t *testing.T) {
+	e := NewEditor(nil)
+	id, _, err := e.AddLettering(lettering.Spec{Text: "AB", Font: "Block", Height: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !e.Dirty() {
+		t.Fatal("doc with a design should be dirty")
+	}
+	if err := e.Delete(id); err != nil {
+		t.Fatal(err)
+	}
+	if e.Dirty() || e.State().Dirty {
+		t.Fatal("empty never-saved doc should not ask to discard")
+	}
+}
+
+func TestWriteDirectFallback(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "out.dst")
+	if err := writeDirect(p, []byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAtomic(p, []byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(p); string(b) != "hello" {
+		t.Fatalf("got %q", b)
+	}
+}

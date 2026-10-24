@@ -117,7 +117,13 @@ func (e *Editor) Redo() {
 func (e *Editor) Dirty() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.dirty
+	return e.dirtyLocked()
+}
+
+// dirtyLocked reports unsaved work. A never-saved document with nothing in
+// it has nothing to lose, even if designs were added and then deleted.
+func (e *Editor) dirtyLocked() bool {
+	return e.dirty && (e.path != "" || len(e.doc.Designs) > 0)
 }
 
 // Reset starts a new empty document.
@@ -347,8 +353,44 @@ func (e *Editor) Path() string {
 	return e.path
 }
 
+// writeAtomic saves via a temp file + rename so a crash never leaves a
+// half-written file. Some drives (USB stick emulators feeding the machine,
+// SD readers, some network shares) refuse temp files or renames; for those
+// it falls back to writing the file directly.
 func writeAtomic(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".tep-*")
+	// USB sticks / machine stick emulators may only accept the design file
+	// itself: build everything in memory and write just that one file.
+	if isRemovable(path) {
+		if err := writeDirect(path, data); err != nil {
+			return fmt.Errorf("save %s: %w", filepath.Base(path), err)
+		}
+		return nil
+	}
+	err := writeViaTemp(path, data)
+	if err == nil {
+		return nil
+	}
+	if derr := writeDirect(path, data); derr != nil {
+		return fmt.Errorf("save %s: %w", filepath.Base(path), derr)
+	}
+	return nil
+}
+
+func writeDirect(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	_ = f.Sync() // flush to the stick before the user pulls it
+	return f.Close()
+}
+
+func writeViaTemp(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tsg-*.tmp")
 	if err != nil {
 		return err
 	}
@@ -361,7 +403,11 @@ func writeAtomic(path string, data []byte) error {
 		os.Remove(tmp.Name())
 		return err
 	}
-	return os.Rename(tmp.Name(), path)
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		os.Remove(tmp.Name())
+		return err
+	}
+	return nil
 }
 
 // ---- export --------------------------------------------------------------

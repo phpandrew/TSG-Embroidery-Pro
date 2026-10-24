@@ -71,7 +71,7 @@ type SeqEntry struct {
 // State builds the current View.
 func (e *Editor) State() View {
 	e.mu.Lock()
-	doc, path, dirty := e.doc, e.path, e.dirty
+	doc, path, dirty := e.doc, e.path, e.dirtyLocked()
 	canU, canR := len(e.undo) > 0, len(e.redo) > 0
 	e.mu.Unlock()
 
