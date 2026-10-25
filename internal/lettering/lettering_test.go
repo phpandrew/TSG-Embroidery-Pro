@@ -112,3 +112,51 @@ func abs(f float64) float64 {
 	}
 	return f
 }
+
+func TestArcLettering(t *testing.T) {
+	r := NewRegistry()
+	flat, err := r.Layout(Spec{Text: "ABCDEFG", Font: "Block", Height: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	up, err := r.Layout(Spec{Text: "ABCDEFG", Font: "Block", Height: 100, Arc: "up", ArcRadius: 400})
+	if err != nil {
+		t.Fatal(err)
+	}
+	down, err := r.Layout(Spec{Text: "ABCDEFG", Font: "Block", Height: 100, Arc: "down", ArcRadius: 400})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bf, bu, bd := pattern.Bounds(flat.Stitches), pattern.Bounds(up.Stitches), pattern.Bounds(down.Stitches)
+	if bu.Height() < bf.Height()+40 || bd.Height() < bf.Height()+40 {
+		t.Fatalf("arcs should be taller than flat text: flat %.0f up %.0f down %.0f", bf.Height(), bu.Height(), bd.Height())
+	}
+	if bd.Width() >= bf.Width() {
+		t.Fatal("smile text should be narrower than flat text (letter tops lean in)")
+	}
+	// rainbow: the ends sit lower than the middle; smile: higher
+	endY := func(sts []pattern.St, left bool) float64 {
+		b := pattern.Bounds(sts)
+		best := 0.0
+		first := true
+		for _, s := range sts {
+			if s.Cmd != pattern.Stitch {
+				continue
+			}
+			edge := s.X < b.MinX+b.Width()*0.1
+			if !left {
+				edge = abs(s.X-b.CenterX()) < b.Width()*0.05
+			}
+			if edge && (first || s.Y > best) {
+				best, first = s.Y, false
+			}
+		}
+		return best
+	}
+	if endY(up.Stitches, true) <= endY(up.Stitches, false) {
+		t.Fatal("rainbow ends should be lower than the middle")
+	}
+	if endY(down.Stitches, true) >= endY(down.Stitches, false) {
+		t.Fatal("smile ends should be higher than the middle")
+	}
+}

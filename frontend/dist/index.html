@@ -12,7 +12,7 @@
     <nav id="devmenu" class="devmenu" hidden></nav>
 
     <header class="toolbar">
-      <button class="tb" data-act="open" title="Open (Ctrl+O)"><span data-ic="open"></span>Open</button>
+      <span class="split"><button class="tb" data-act="open" title="Open (Ctrl+O)"><span data-ic="open"></span>Open</button><button class="tb split-arrow" id="recentBtn" title="Recent files"><span data-ic="chevron"></span></button></span>
       <button class="tb" data-act="merge" title="Merge DST files (Ctrl+M)"><span data-ic="merge"></span>Merge</button>
       <button class="tb" data-act="lettering" title="Lettering (Ctrl+T)"><span data-ic="lettering"></span>Lettering</button>
       <span class="tb-sep"></span>
@@ -26,6 +26,7 @@
       <button class="tb icon-only tb-settings" data-act="settings" title="Settings (Ctrl+,)"><span data-ic="settings"></span></button>
       <button class="btn btn-outline" data-act="printBlocks" title="Sew sequence print-off (Ctrl+Shift+P)" style="margin-right:8px"><span data-ic="worksheet"></span>Print sequence</button>
       <button class="btn btn-outline" data-act="worksheet" title="Production worksheet (Ctrl+P)"><span data-ic="worksheet"></span>Worksheet</button>
+      <span id="quickSends" class="quick-sends"></span>
       <button class="btn btn-primary" data-act="export" title="Export DST (Ctrl+E)"><span data-ic="export"></span>Export DST</button>
     </header>
 
@@ -87,11 +88,12 @@
             <div id="emptyState" class="empty" hidden>
               <div class="empty-card">
                 <h3>No design loaded</h3>
-                <p>Open or merge a Tajima DST file, drop files here, or add lettering.</p>
+                <p>Open a design (DST, PES, JEF, EXP) or project, drop files here, or add lettering.</p>
                 <div class="empty-actions">
-                  <button class="btn btn-primary" data-act="open"><span data-ic="open"></span>Open DST</button>
+                  <button class="btn btn-primary" data-act="open"><span data-ic="open"></span>Open design</button>
                   <button class="btn btn-outline" data-act="quickText"><span data-ic="lettering"></span>Add lettering</button>
                 </div>
+                <div class="empty-recent" id="emptyRecent"></div>
               </div>
             </div>
           </div>

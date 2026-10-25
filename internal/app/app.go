@@ -57,6 +57,10 @@ type Prefs struct {
 	// (default: the Downloads folder).
 	WatchEnabled bool   `json:"watchEnabled"`
 	WatchDir     string `json:"watchDir"`
+	// Recent is the recently opened files, newest first.
+	Recent []string `json:"recent"`
+	// QuickSends are the one-click export targets (one per machine).
+	QuickSends []QuickSend `json:"quickSends"`
 }
 
 // WindowPrefs is the main window's size and state, restored at launch.
@@ -78,11 +82,15 @@ type App struct {
 	nextTab int
 	watch   *watcher
 	watchMu sync.Mutex
-	upd     *updater.Updater
-	prefs   Prefs
-	prefsMu sync.Mutex
-	pending *updater.Release
-	cfgDir  string
+	// auto-backup
+	session  string
+	backupMu sync.Mutex
+	backedUp map[string]uint64
+	upd      *updater.Updater
+	prefs    Prefs
+	prefsMu  sync.Mutex
+	pending  *updater.Release
+	cfgDir   string
 }
 
 func New(ui UI) *App {
@@ -110,6 +118,9 @@ func New(ui UI) *App {
 		upd:    updater.New(version.Repo, version.Version),
 		prefs:  Prefs{AutoCheckUpdates: true, WatchEnabled: true},
 		cfgDir: cfg,
+		// unique per run so two sessions never share backup files
+		session:  fmt.Sprintf("%s-%d", time.Now().Format("20060102-150405"), os.Getpid()),
+		backedUp: map[string]uint64{},
 	}
 	a.loadPrefs()
 	a.addTab(a.newEditor())
@@ -135,6 +146,11 @@ func Startup(a *App, ctx context.Context) {
 	a.ctx = ctx
 	a.syncStartup()
 	a.restartWatch()
+	a.startBackups()
+	go func() {
+		time.Sleep(1500 * time.Millisecond) // let the window finish loading
+		a.offerRestore()
+	}()
 	go func() {
 		if !a.prefs.AutoCheckUpdates {
 			return
@@ -180,7 +196,11 @@ func SaveWindowState(a *App, w, h int, maximised, fullscreen bool) {
 }
 
 func BeforeClose(a *App) bool {
-	return !a.confirmQuit("quit")
+	if !a.confirmQuit("quit") {
+		return true
+	}
+	a.clearBackups()
+	return false
 }
 
 func (a *App) view(err error) (document.View, error) {
@@ -297,25 +317,35 @@ func (a *App) OpenPath(path string, replace bool) (document.View, error) {
 
 func (a *App) Save() (document.View, error) {
 	if p := a.cur().Path(); p != "" {
-		return a.view(a.cur().SaveProject(p))
+		err := a.cur().SaveProject(p)
+		if err == nil {
+			a.forgetBackup(a.activeID())
+		}
+		return a.view(err)
 	}
 	return a.SaveAs()
 }
 
 func (a *App) SaveAs() (document.View, error) {
-	name := a.cur().State().Title
+	name := a.cur().Title()
 	name = strings.TrimSuffix(name, filepath.Ext(name))
 	p, err := a.ui.SaveFile("Save project", name+document.ProjectExt, document.ProjectExt, a.dir(true))
 	a.rememberDir(true, p)
 	if err != nil || p == "" {
 		return a.view(err)
 	}
-	return a.view(a.cur().SaveProject(p))
+	ed := a.cur()
+	if err := ed.SaveProject(p); err != nil {
+		return a.view(err)
+	}
+	a.addRecent(ed.Path())
+	a.forgetBackup(a.activeID())
+	return a.view(nil)
 }
 
 // ExportDST shows a save dialog and writes the merged design. Returns the path.
 func (a *App) ExportDST() (string, error) {
-	name := a.cur().State().Title
+	name := a.cur().Title()
 	name = strings.TrimSuffix(name, filepath.Ext(name))
 	p, err := a.ui.SaveFile("Export DST", name+".dst", ".dst", a.dir(true))
 	a.rememberDir(true, p)
@@ -545,6 +575,7 @@ func (a *App) InstallUpdate() error {
 	if !a.confirmQuit("restart to update") {
 		return errors.New("update cancelled")
 	}
+	a.clearBackups()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	if err := a.upd.Install(ctx, a.pending); err != nil {

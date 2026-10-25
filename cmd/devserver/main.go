@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"reflect"
 	"strings"
 
@@ -32,7 +33,7 @@ func (headless) Emit(string, any)                          {}
 func (headless) SetTitle(string)                           {}
 func (headless) OpenURL(u string)                          { log.Println("open url:", u) }
 func (headless) Quit()                                     {}
-func (headless) PickFolder(string, string) (string, error) { return "", nil }
+func (headless) PickFolder(string, string) (string, error) { return os.Getenv("DEV_PICK_FOLDER"), nil }
 func (headless) Focus()                                    {}
 
 func main() {

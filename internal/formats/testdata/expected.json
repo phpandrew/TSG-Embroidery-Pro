@@ -1,0 +1,223 @@
+{
+ "ANDREW.exp": {
+  "colorChanges": 0,
+  "first": [
+   -378,
+   77
+  ],
+  "maxX": 392,
+  "maxY": 94,
+  "minX": -392,
+  "minY": -94,
+  "stitches": 1809,
+  "trims": 7
+ },
+ "ANDREW.jef": {
+  "colorChanges": 0,
+  "first": [
+   -378,
+   77
+  ],
+  "maxX": 392,
+  "maxY": 94,
+  "minX": -392,
+  "minY": -94,
+  "stitches": 1809,
+  "trims": 7
+ },
+ "ANDREW.pec": {
+  "colorChanges": 0,
+  "first": [
+   -378,
+   77
+  ],
+  "maxX": 392,
+  "maxY": 94,
+  "minX": -392,
+  "minY": -94,
+  "stitches": 1809,
+  "trims": 19
+ },
+ "ANDREW.pes": {
+  "colorChanges": 0,
+  "first": [
+   -378,
+   77
+  ],
+  "maxX": 392,
+  "maxY": 94,
+  "minX": -392,
+  "minY": -94,
+  "stitches": 1809,
+  "trims": 19
+ },
+ "ANDREW_v6.pes": {
+  "colorChanges": 0,
+  "first": [
+   -378,
+   77
+  ],
+  "maxX": 392,
+  "maxY": 94,
+  "minX": -392,
+  "minY": -94,
+  "stitches": 1809,
+  "trims": 19
+ },
+ "alphabet.exp": {
+  "colorChanges": 0,
+  "first": [
+   -1538,
+   51
+  ],
+  "maxX": 1548,
+  "maxY": 64,
+  "minX": -1548,
+  "minY": -64,
+  "stitches": 6201,
+  "trims": 39
+ },
+ "alphabet.jef": {
+  "colorChanges": 0,
+  "first": [
+   -1538,
+   51
+  ],
+  "maxX": 1548,
+  "maxY": 64,
+  "minX": -1548,
+  "minY": -64,
+  "stitches": 6201,
+  "trims": 42
+ },
+ "alphabet.pec": {
+  "colorChanges": 0,
+  "first": [
+   -1538,
+   51
+  ],
+  "maxX": 1548,
+  "maxY": 64,
+  "minX": -1548,
+  "minY": -64,
+  "stitches": 6201,
+  "trims": 85
+ },
+ "alphabet.pes": {
+  "colorChanges": 0,
+  "first": [
+   -1538,
+   51
+  ],
+  "maxX": 1548,
+  "maxY": 64,
+  "minX": -1548,
+  "minY": -64,
+  "stitches": 6201,
+  "trims": 85
+ },
+ "crest.exp": {
+  "colorChanges": 2,
+  "first": [
+   327,
+   154
+  ],
+  "maxX": 463,
+  "maxY": 514,
+  "minX": -462,
+  "minY": -493,
+  "stitches": 9104,
+  "trims": 5
+ },
+ "crest.jef": {
+  "colorChanges": 2,
+  "first": [
+   327,
+   154
+  ],
+  "maxX": 463,
+  "maxY": 514,
+  "minX": -462,
+  "minY": -493,
+  "stitches": 9104,
+  "trims": 18
+ },
+ "crest.pec": {
+  "colorChanges": 2,
+  "first": [
+   327,
+   154
+  ],
+  "maxX": 463,
+  "maxY": 514,
+  "minX": -462,
+  "minY": -493,
+  "stitches": 9115,
+  "trims": 60
+ },
+ "crest.pes": {
+  "colorChanges": 2,
+  "first": [
+   327,
+   154
+  ],
+  "maxX": 463,
+  "maxY": 514,
+  "minX": -462,
+  "minY": -493,
+  "stitches": 9115,
+  "trims": 60
+ },
+ "square.exp": {
+  "colorChanges": 2,
+  "first": [
+   0,
+   0
+  ],
+  "maxX": 500,
+  "maxY": 500,
+  "minX": 0,
+  "minY": 0,
+  "stitches": 63,
+  "trims": 0
+ },
+ "square.jef": {
+  "colorChanges": 2,
+  "first": [
+   0,
+   0
+  ],
+  "maxX": 500,
+  "maxY": 500,
+  "minX": 0,
+  "minY": 0,
+  "stitches": 63,
+  "trims": 0
+ },
+ "square.pec": {
+  "colorChanges": 2,
+  "first": [
+   0,
+   0
+  ],
+  "maxX": 500,
+  "maxY": 500,
+  "minX": 0,
+  "minY": 0,
+  "stitches": 63,
+  "trims": 2
+ },
+ "square.pes": {
+  "colorChanges": 2,
+  "first": [
+   0,
+   0
+  ],
+  "maxX": 500,
+  "maxY": 500,
+  "minX": 0,
+  "minY": 0,
+  "stitches": 63,
+  "trims": 2
+ }
+}

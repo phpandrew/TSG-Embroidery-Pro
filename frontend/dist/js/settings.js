@@ -1,7 +1,7 @@
 // Settings window: startup, auto-open of new downloads, updates, help.
 import { api } from './api.js';
 import { esc, modal, toast } from './ui.js';
-import { S, actions } from './main.js';
+import { S, actions, renderQuickSends } from './main.js';
 
 export async function openSettings() {
   let timer = null;
@@ -34,6 +34,12 @@ export async function openSettings() {
             <p class="hint">Only a single new file is opened, in a new tab, and the window comes to the front. If several arrive at once (unzipping a batch) none are opened. Files already in the folder when the app starts are left alone.</p>
           </section>
           <section class="set-sec">
+            <h4>Quick send</h4>
+            <p class="hint">One-click buttons that export the current design as a DST straight to a machine's USB stick or folder. Each machine you add gets its own button on the toolbar.</p>
+            <div id="qs-list"></div>
+            <div class="set-row"><input class="inp qs-new" id="qs-name" placeholder="Machine name, e.g. Tajima 1" maxlength="40" style="height:34px;border:1px solid #d5d9df;border-radius:6px;padding:0 8px;flex:1;min-width:0"><button class="btn btn-ghost btn-sm" id="qs-add">Add machine…</button></div>
+          </section>
+          <section class="set-sec">
             <h4>Updates</h4>
             <p class="hint" style="margin:0 0 6px">You have version <b>${esc(S.info ? S.info.version : '')}</b></p>
             <label class="check"><input type="checkbox" id="st-auto" ${prefs.autoCheckUpdates ? 'checked' : ''}> Check for updates at startup</label>
@@ -59,6 +65,34 @@ export async function openSettings() {
         q('#st-pre').onchange = savePrefs;
         q('#st-check').onclick = () => actions.checkUpdates();
         q('#st-logs').onclick = () => actions.logs();
+        drawQS();
+      };
+
+      // quick-send machines
+      const drawQS = list => {
+        const box = root.querySelector('#qs-list');
+        if (!box) return;
+        if (!list) { api.QuickSends().then(drawQS).catch(fail); return; }
+        renderQuickSends();
+        box.innerHTML = list.length ? list.map(m => `<div class="qs-row" data-id="${esc(m.id)}">
+            <input class="inp qs-nm" value="${esc(m.name)}" maxlength="40" title="Button name">
+            <code title="${esc(m.folder)}"><span class="qs-dot${m.connected ? ' on' : ''}" title="${m.connected ? 'Connected' : 'Not found'}"></span>${esc(m.folder)}</code>
+            <button class="btn btn-ghost btn-sm qs-folder">Folder…</button>
+            <button class="btn btn-ghost btn-sm qs-del">Remove</button>
+          </div>`).join('') : '<p class="hint">No machines yet.</p>';
+        box.querySelectorAll('.qs-row').forEach(row => {
+          const id = row.dataset.id;
+          row.querySelector('.qs-nm').onchange = e => api.RenameQuickSend(id, e.target.value).then(drawQS).catch(fail);
+          row.querySelector('.qs-folder').onclick = () => api.ChangeQuickSendFolder(id).then(drawQS).catch(fail);
+          row.querySelector('.qs-del').onclick = () => api.RemoveQuickSend(id).then(drawQS).catch(fail);
+          row.querySelector('.qs-nm').onkeydown = e => { if (e.key === 'Enter') { e.stopPropagation(); e.target.blur(); } };
+        });
+        const add = root.querySelector('#qs-add'), nm = root.querySelector('#qs-name');
+        add.onclick = () => {
+          if (!nm.value.trim()) { nm.focus(); toast('Type a name for the machine first'); return; }
+          api.AddQuickSend(nm.value).then(l => { nm.value = ''; drawQS(l); }).catch(fail);
+        };
+        nm.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); add.click(); } };
       };
 
       let prefs = {};

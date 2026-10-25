@@ -117,14 +117,26 @@ func (a *App) openInTab(path string) error {
 	a.tabsMu.Unlock()
 
 	if reuse {
-		return a.cur().OpenFile(path)
+		if err := a.cur().OpenFile(path); err != nil {
+			return err
+		}
+		a.addRecent(path)
+		return nil
 	}
 	ed := a.newEditor()
 	if err := ed.OpenFile(path); err != nil {
 		return err
 	}
 	a.addTab(ed)
+	a.addRecent(path)
 	return nil
+}
+
+// activeID is the active tab's id.
+func (a *App) activeID() string {
+	a.tabsMu.Lock()
+	defer a.tabsMu.Unlock()
+	return a.tabs[a.active].id
 }
 
 // ---- tab API -------------------------------------------------------------
@@ -173,6 +185,7 @@ func (a *App) CloseTab(id string) (document.View, error) {
 		}
 	}
 	a.removeTab(id)
+	a.forgetBackup(id)
 	return a.view(nil)
 }
 

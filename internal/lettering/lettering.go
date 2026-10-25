@@ -42,6 +42,27 @@ type Spec struct {
 	TrimAbove    float64 `json:"trimAbove"`              // trim jumps longer than this, 0.1 mm, default 40
 	LineSpacing  float64 `json:"lineSpacing,omitempty"`  // multi-line: baseline-to-baseline as % of height, default 150
 	Align        string  `json:"align,omitempty"`        // multi-line: left | center (default) | right
+	Arc          string  `json:"arc,omitempty"`          // "" (straight) | up (rainbow) | down (smile)
+	ArcRadius    float64 `json:"arcRadius,omitempty"`    // arc radius to the baseline, 0.1 mm (0 = auto)
+}
+
+// glyphRange marks one letter's stitches inside a line block, so curved
+// lettering can place each letter on the arc as a rigid piece.
+type glyphRange struct {
+	block, from, to int
+	cx              float64 // letter centre along the baseline
+}
+
+// arcPoint places (x,y) of a letter centred at cx on a circle of radius r
+// through the baseline. up = rainbow (centre below), else smile (centre above).
+func arcPoint(x, y, cx, r float64, up bool) (float64, float64) {
+	a := cx / r
+	sin, cos := math.Sin(a), math.Cos(a)
+	dx, dy := x-cx, y
+	if up {
+		return r*sin + dx*cos - dy*sin, r*(1-cos) + dx*sin + dy*cos
+	}
+	return r*sin + dx*cos + dy*sin, -r*(1-cos) - dx*sin + dy*cos
 }
 
 // Lines splits lettering text into lines: line breaks are kept, trailing
@@ -252,9 +273,16 @@ func (r *Registry) Layout(s Spec) (Result, error) {
 	if s.LineSpacing > 0 {
 		lineGap = s.Height * s.LineSpacing / 100
 	}
+	curved := s.Arc == "up" || s.Arc == "down"
+	arcUp := s.Arc == "up"
+	arcR := 0.0 // 0 = auto: picked from the first line so it spans about 120°
+	if s.ArcRadius > 0 {
+		arcR = math.Max(s.ArcRadius, s.Height*1.5)
+	}
 	for li, line := range Lines(text) {
 		// one line: colour i of every letter goes to lb[i]
 		var lb [][]pattern.St
+		var ranges []glyphRange
 		penX := 0.0
 		var prev rune
 		for _, ch := range line {
@@ -281,6 +309,7 @@ func (r *Registry) Layout(s Spec) (Result, error) {
 			}
 			// split the glyph by colour; colour i of every letter goes to block i
 			ci := 0
+			cx := penX + adv/2
 			var seg []pattern.St
 			flush := func() {
 				if pattern.Count(seg).Stitches == 0 {
@@ -293,7 +322,9 @@ func (r *Registry) Layout(s Spec) (Result, error) {
 				if seg[0].Cmd == pattern.Stitch {
 					seg = append([]pattern.St{{X: seg[0].X, Y: seg[0].Y, Cmd: pattern.Jump}}, seg...)
 				}
+				from := len(lb[ci])
 				lb[ci] = append(lb[ci], seg...)
+				ranges = append(ranges, glyphRange{ci, from, len(lb[ci]), cx})
 				seg = nil
 			}
 			for _, st := range g {
@@ -320,13 +351,41 @@ func (r *Registry) Layout(s Spec) (Result, error) {
 			continue
 		}
 		dx := -lr.CenterX()
-		switch s.Align {
-		case "left":
+		switch {
+		case curved:
+			// arcs are centred on the top of (or bottom of) the circle
+		case s.Align == "left":
 			dx = -lr.MinX
-		case "right":
+		case s.Align == "right":
 			dx = -lr.MaxX
 		}
 		dy := float64(li) * lineGap
+		if curved && arcR == 0 {
+			arcR = math.Max(lr.Width()/2.1, s.Height*1.5)
+		}
+		if curved {
+			// concentric lines: rainbow lines below get a smaller radius,
+			// smile lines below a larger one; same centre for all.
+			r := arcR - dy
+			if !arcUp {
+				r = arcR + dy
+			}
+			r = math.Max(r, s.Height)
+			for _, g := range ranges {
+				b := lb[g.block]
+				for j := g.from; j < g.to; j++ {
+					if b[j].Cmd == pattern.Stitch || b[j].Cmd == pattern.Jump {
+						b[j].X, b[j].Y = arcPoint(b[j].X+dx, b[j].Y, g.cx+dx, r, arcUp)
+					}
+				}
+			}
+			dx = 0
+			if arcUp {
+				dy = arcR - r
+			} else {
+				dy = r - arcR
+			}
+		}
 		for i, b := range lb {
 			for j := range b {
 				if b[j].Cmd == pattern.Stitch || b[j].Cmd == pattern.Jump {

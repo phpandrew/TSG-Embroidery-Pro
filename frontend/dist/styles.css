@@ -388,8 +388,8 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; border: 1px
 .font-row { display: flex; gap: 8px; }
 .font-row select { flex: 1; min-width: 0; }
 
-.form .seg.lt-align { display: flex; height: 38px; }
-.form .seg.lt-align button { flex: 1; padding: 5px 6px; }
+.form .seg.lt-align, .form .seg.lt-arc { display: flex; height: 38px; }
+.form .seg.lt-align button, .form .seg.lt-arc button { flex: 1; padding: 5px 4px; font-size: 13px; }
 .form .check.sm { font-size: 13px; color: var(--muted, #6b7280); margin-top: 6px; }
 
 /* open-design tabs */
@@ -418,3 +418,28 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; border: 1px
 .settings .set-status { margin: 0; font-size: 12.5px; color: #3b6b3b; background: #f1f8f1; border-radius: 5px; padding: 6px 8px; }
 .settings .hint { margin: 0; }
 .tb-settings { margin-right: 8px; }
+
+/* open + recent split button */
+.split { display: inline-flex; align-items: stretch; }
+.split .tb:first-child { padding-right: 6px; }
+.split-arrow { padding: 0 6px !important; min-width: 0; }
+.split-arrow svg { width: 14px; height: 14px; }
+/* quick send buttons */
+.quick-sends { display: inline-flex; gap: 8px; margin-right: 8px; }
+.quick-sends:empty { display: none; }
+.btn.qs { border-color: #1a7f4b; color: #1a7f4b; background: #fff; }
+.btn.qs:hover { background: #effaf3; }
+.btn.qs.off { border-color: #c9ced6; color: #8a909b; }
+/* recent files on the empty screen */
+.empty-recent { margin-top: 18px; text-align: left; max-width: 460px; width: 100%; }
+.empty-recent h4 { margin: 0 0 6px; font-size: 13px; color: #6b7280; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.empty-recent button { display: flex; width: 100%; gap: 10px; align-items: baseline; border: 0; background: none; padding: 6px 8px; border-radius: 6px; text-align: left; cursor: pointer; font-size: 14px; color: var(--text); }
+.empty-recent button:hover { background: #f1f3f6; }
+.empty-recent button .rf-dir { color: #8a909b; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.empty-recent button.gone { opacity: .5; }
+/* quick send settings */
+.qs-row { display: grid; grid-template-columns: 1fr 1.6fr auto auto; gap: 8px; align-items: center; }
+.qs-row .inp { height: 34px; border: 1px solid #d5d9df; border-radius: 6px; padding: 0 8px; font-size: 14px; min-width: 0; }
+.qs-row code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: #f1f3f6; padding: 6px 8px; border-radius: 5px; font-size: 12.5px; }
+.qs-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; background: #c9ced6; }
+.qs-dot.on { background: #1a9a55; }

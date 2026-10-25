@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/phpandrew/TSG-Embroidery-Pro/internal/dst"
+	"github.com/phpandrew/TSG-Embroidery-Pro/internal/formats"
 	"github.com/phpandrew/TSG-Embroidery-Pro/internal/lettering"
 	"github.com/phpandrew/TSG-Embroidery-Pro/internal/pattern"
 )
@@ -43,6 +44,48 @@ type Editor struct {
 	liveAt  time.Time
 	// source is the DST file this document was opened from, if any
 	source string
+	// version changes whenever the document does (auto-backup uses it)
+	version uint64
+}
+
+// Version changes every time the document changes.
+func (e *Editor) Version() uint64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.version
+}
+
+// WriteBackup saves the document to path as a project without changing the
+// editor's own save path or unsaved state.
+func (e *Editor) WriteBackup(path string) error {
+	e.mu.Lock()
+	doc := e.doc
+	e.mu.Unlock()
+	data, err := json.Marshal(projectFile{Format: projectMagic, Version: 1, Doc: doc})
+	if err != nil {
+		return err
+	}
+	return writeAtomic(path, data)
+}
+
+// RestoreBackup loads a backup written by WriteBackup. origPath is where the
+// work came from (a project to save back to, or a DST it was opened from);
+// the restored document is marked unsaved.
+func (e *Editor) RestoreBackup(backupPath, origPath string) error {
+	if err := e.OpenProject(backupPath); err != nil {
+		return err
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.path, e.source = "", ""
+	if strings.EqualFold(filepath.Ext(origPath), ProjectExt) {
+		e.path = origPath
+	} else {
+		e.source = origPath
+	}
+	e.dirty = true
+	e.version++
+	return nil
 }
 
 func NewEditor(fonts *lettering.Registry) *Editor {
@@ -77,6 +120,7 @@ func (e *Editor) mutateLive(key string, fn func(d *Doc) error) error {
 
 func (e *Editor) mutateLocked(fn func(d *Doc) error) error {
 	e.liveKey = ""
+	e.version++
 	work := e.doc.clone()
 	if err := fn(work); err != nil {
 		return err
@@ -95,6 +139,7 @@ func (e *Editor) Undo() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.liveKey = ""
+	e.version++
 	if n := len(e.undo); n > 0 {
 		e.redo = append(e.redo, e.doc)
 		e.doc = e.undo[n-1]
@@ -107,6 +152,7 @@ func (e *Editor) Redo() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.liveKey = ""
+	e.version++
 	if n := len(e.redo); n > 0 {
 		e.undo = append(e.undo, e.doc)
 		e.doc = e.redo[n-1]
@@ -141,6 +187,7 @@ func (e *Editor) Reset() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.doc, e.undo, e.redo, e.path, e.dirty, e.source = newDocWith(e.defaults), nil, nil, "", false, ""
+	e.version++
 }
 
 // SetDefaults sets the settings new documents start with. If the current
@@ -241,14 +288,27 @@ func ReadDST(r io.Reader, trimJumps int) ([][]pattern.St, string, error) {
 	return blocks, h.Label, nil
 }
 
+// readOther reads a non-DST stitch file (PES, PEC, JEF, EXP) into blocks.
+func readOther(r io.Reader, ext string, trimJumps int) ([][]pattern.St, error) {
+	p, err := formats.Read(r, ext)
+	if err != nil {
+		return nil, err
+	}
+	blocks := pattern.SplitBlocks(pattern.CollapseJumps(p.Stitches, trimJumps))
+	if len(blocks) == 0 {
+		return nil, errors.New("file contains no stitches")
+	}
+	return blocks, nil
+}
+
 // ImportFile adds a stitch file to the document (merge).
 func (e *Editor) ImportFile(path string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(path))
 	if ext == ProjectExt {
 		return "", e.OpenProject(path)
 	}
-	if ext != ".dst" {
-		return "", fmt.Errorf("unsupported file type %q (DST only for now)", ext)
+	if ext != ".dst" && !formats.Supported(ext) {
+		return "", fmt.Errorf("unsupported file type %q (DST, %s)", ext, strings.ToUpper(strings.Join(formats.Exts(), ", ")))
 	}
 	f, err := os.Open(path)
 	if err != nil {
@@ -258,7 +318,12 @@ func (e *Editor) ImportFile(path string) (string, error) {
 	e.mu.Lock()
 	tj := e.doc.Settings.TrimJumps
 	e.mu.Unlock()
-	blocks, _, err := ReadDST(f, tj)
+	var blocks [][]pattern.St
+	if ext == ".dst" {
+		blocks, _, err = ReadDST(f, tj)
+	} else {
+		blocks, err = readOther(f, ext, tj)
+	}
 	if err != nil {
 		return "", fmt.Errorf("%s: %w", filepath.Base(path), err)
 	}
@@ -312,10 +377,14 @@ func (e *Editor) Source() string {
 	return e.source
 }
 
-// Title is the document name shown in the tab.
+// Title is the document name shown in the tab. A new, unnamed document is
+// named after its first design.
 func (e *Editor) Title() string {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if (e.doc.Name == "" || e.doc.Name == "Untitled") && len(e.doc.Designs) > 0 {
+		return e.doc.Designs[0].Name
+	}
 	return e.doc.Name
 }
 
@@ -368,6 +437,7 @@ func (e *Editor) OpenProject(path string) error {
 	}
 	e.mu.Lock()
 	e.doc, e.undo, e.redo, e.path, e.dirty = pf.Doc, nil, nil, path, false
+	e.version++
 	e.mu.Unlock()
 	return nil
 }

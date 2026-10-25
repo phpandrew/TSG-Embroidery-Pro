@@ -6,7 +6,9 @@ import (
 	"embed"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/menu"
@@ -17,6 +19,7 @@ import (
 	wr "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/phpandrew/TSG-Embroidery-Pro/internal/app"
+	"github.com/phpandrew/TSG-Embroidery-Pro/internal/updater"
 	"github.com/phpandrew/TSG-Embroidery-Pro/internal/version"
 )
 
@@ -30,13 +33,17 @@ type wailsUI struct {
 }
 
 func (u *wailsUI) OpenFiles(title string, multi, project bool, dir string) ([]string, error) {
-	filters := []wr.FileFilter{{DisplayName: "Tajima DST (*.dst)", Pattern: "*.dst;*.DST"}}
+	designs := "*.dst;*.DST;*.pes;*.PES;*.pec;*.PEC;*.jef;*.JEF;*.exp;*.EXP"
+	filters := []wr.FileFilter{
+		{DisplayName: "Embroidery designs (DST, PES, PEC, JEF, EXP)", Pattern: designs},
+		{DisplayName: "Tajima DST (*.dst)", Pattern: "*.dst;*.DST"},
+		{DisplayName: "Brother PES/PEC (*.pes, *.pec)", Pattern: "*.pes;*.PES;*.pec;*.PEC"},
+		{DisplayName: "Janome JEF (*.jef)", Pattern: "*.jef;*.JEF"},
+		{DisplayName: "Melco EXP (*.exp)", Pattern: "*.exp;*.EXP"},
+	}
 	if project {
-		filters = []wr.FileFilter{
-			{DisplayName: "Designs and projects", Pattern: "*.dst;*.DST;*.tep"},
-			{DisplayName: "Tajima DST (*.dst)", Pattern: "*.dst;*.DST"},
-			{DisplayName: "Project (*.tep)", Pattern: "*.tep"},
-		}
+		filters = append([]wr.FileFilter{{DisplayName: "Designs and projects", Pattern: designs + ";*.tep"}}, filters...)
+		filters = append(filters, wr.FileFilter{DisplayName: "Project (*.tep)", Pattern: "*.tep"})
 	}
 	opts := wr.OpenDialogOptions{Title: title, Filters: filters, DefaultDirectory: dir}
 	if multi {
@@ -112,6 +119,7 @@ func buildMenu(emit func(string)) *menu.Menu {
 	file := m.AddSubmenu("File")
 	item(file, "New", keys.CmdOrCtrl("n"), "new")
 	item(file, "Open…", keys.CmdOrCtrl("o"), "open")
+	item(file, "Open recent…", nil, "recent")
 	item(file, "Close tab", keys.CmdOrCtrl("w"), "closeTab")
 	item(file, "Merge…", keys.CmdOrCtrl("m"), "merge")
 	file.AddSeparator()
@@ -163,14 +171,42 @@ func buildMenu(emit func(string)) *menu.Menu {
 	return m
 }
 
+// fileArg returns the first non-flag argument (a file opened from Explorer).
+func fileArg(args []string) string {
+	for _, a := range args {
+		if a != "" && !strings.HasPrefix(a, "-") {
+			return a
+		}
+	}
+	return ""
+}
+
+// openFromArgs opens a file passed on the command line in a tab.
+func openFromArgs(a *app.App, ui *wailsUI, path string) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("open %s: %v", path, r)
+		}
+	}()
+	if _, err := a.OpenPath(path, true); err != nil {
+		ui.Emit("watch:error", err.Error())
+	}
+	ui.Emit("state:changed", nil)
+	ui.Focus()
+}
+
 func main() {
 	ui := &wailsUI{}
 	a := app.New(ui)
 	ui.app = a
 
-	startupFile := ""
-	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
-		startupFile = os.Args[1]
+	startupFile := fileArg(os.Args[1:])
+	for _, arg := range os.Args[1:] {
+		if arg == updater.AfterUpdateFlag {
+			// the previous version is still shutting down and holds the
+			// single-instance lock; give it a moment
+			time.Sleep(2500 * time.Millisecond)
+		}
 	}
 
 	// reopen the window the way it was left
@@ -210,8 +246,23 @@ func main() {
 			app.Startup(a, ctx)
 			wr.OnFileDrop(ctx, func(_, _ int, paths []string) { ui.Emit("files:dropped", paths) })
 			if startupFile != "" {
-				go func() { _, _ = a.OpenPath(startupFile, true); ui.Emit("state:changed", nil) }()
+				go openFromArgs(a, ui, startupFile)
 			}
+		},
+		// one window: opening a design from Explorer while the app is running
+		// adds a tab to the running copy instead of starting another
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId: "com.phpandrew.tsg-embroidery-pro",
+			OnSecondInstanceLaunch: func(d options.SecondInstanceData) {
+				if f := fileArg(d.Args); f != "" {
+					if !filepath.IsAbs(f) && d.WorkingDirectory != "" {
+						f = filepath.Join(d.WorkingDirectory, f)
+					}
+					go openFromArgs(a, ui, f)
+				} else {
+					ui.Focus()
+				}
+			},
 		},
 		OnBeforeClose: func(ctx context.Context) bool {
 			if app.BeforeClose(a) {

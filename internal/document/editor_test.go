@@ -259,3 +259,16 @@ func TestWriteDirectFallback(t *testing.T) {
 		t.Fatalf("got %q", b)
 	}
 }
+
+func TestImportOtherFormats(t *testing.T) {
+	for _, f := range []string{"crest.pes", "crest.pec", "crest.jef", "crest.exp"} {
+		e := NewEditor(nil)
+		if _, err := e.ImportFile(filepath.Join("..", "formats", "testdata", f)); err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+		d := e.State().Designs
+		if len(d) != 1 || len(d[0].Blocks) != 3 || d[0].Stitches < 9000 {
+			t.Fatalf("%s: designs=%d blocks=%d stitches=%d", f, len(d), len(d[0].Blocks), d[0].Stitches)
+		}
+	}
+}

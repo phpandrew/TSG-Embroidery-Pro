@@ -78,6 +78,44 @@ export function apply(view, opts = {}) {
   redraw();
 }
 
+// ---------------------------------------------------------------- recent files
+async function renderRecentEmpty() {
+  const box = $('#emptyRecent');
+  if (!box) return;
+  let list = [];
+  try { list = await api.RecentFiles(); } catch { /* ignore */ }
+  list = (list || []).slice(0, 6);
+  box.innerHTML = list.length ? `<h4>Recent</h4>` + list.map((f, i) =>
+    `<button data-i="${i}" class="${f.exists ? '' : 'gone'}" title="${esc(f.path)}"><span>${esc(f.name)}</span><span class="rf-dir">${esc(f.folder)}</span></button>`).join('') : '';
+  box.querySelectorAll('[data-i]').forEach(b => b.onclick = () => openRecent(list[+b.dataset.i].path));
+}
+
+function openRecent(path) {
+  return run(() => api.OpenRecent(path)).then(r => { if (r) { R.fit(S.view.hoop); updateZoomLabel(); redraw(); } });
+}
+
+async function recentMenu(x, y) {
+  let list = [];
+  try { list = await api.RecentFiles(); } catch { /* ignore */ }
+  if (!list.length) { toast('No recent files yet'); return; }
+  contextMenu(x, y, [
+    ...list.map(f => ({ label: f.name + (f.exists ? '' : ' (missing)'), action: () => openRecent(f.path) })),
+    '-',
+    { label: 'Clear recent files', action: () => api.ClearRecent().then(() => renderRecentEmpty()) },
+  ]);
+}
+
+// ---------------------------------------------------------------- quick send
+export async function renderQuickSends() {
+  const box = $('#quickSends');
+  if (!box) return;
+  let list = [];
+  try { list = await api.QuickSends(); } catch { /* ignore */ }
+  box.innerHTML = (list || []).map(q =>
+    `<button class="btn btn-outline qs${q.connected ? '' : ' off'}" data-q="${esc(q.id)}" title="${esc(q.connected ? `Export DST straight to ${q.folder}` : `${q.folder} not found — plug in the stick`)}">${icon('export', 16)}Send to ${esc(q.name)}</button>`).join('');
+  box.querySelectorAll('[data-q]').forEach(b => b.onclick = () => run(() => api.SendTo(b.dataset.q)).then(r => { if (r && r.message) toast(r.message); renderQuickSends(); }));
+}
+
 // ---------------------------------------------------------------- doc tabs
 function renderTabs() {
   const bar = $('#docTabs');
@@ -139,6 +177,7 @@ function renderChrome() {
   $('#btnRedo').disabled = !v.canRedo;
   $('#statusMachine').textContent = v.settings.machine;
   $('#emptyState').hidden = v.designs.length > 0;
+  if (v.designs.length === 0) renderRecentEmpty();
   const hs = $('#hoopSelect');
   if (hs.options.length !== v.hoops.length) hs.innerHTML = v.hoops.map(h => `<option value="${h.id}">${esc(h.name)}</option>`).join('');
   hs.value = v.hoop.id;
@@ -652,6 +691,7 @@ export const actions = {
   checkUpdates: () => checkUpdates(true),
   logs: () => api.OpenLogFolder().catch(e => toast(e.message, 'err')),
   settings: () => openSettings(),
+  recent: () => { const b = $('#recentBtn').getBoundingClientRect(); recentMenu(b.left, b.bottom + 4); },
   github: () => api.OpenRepoPage(),
   about: async () => {
     const i = S.info || {};
@@ -667,12 +707,13 @@ export const actions = {
 };
 
 $$('[data-act]').forEach(b => b.addEventListener('click', () => actions[b.dataset.act] && actions[b.dataset.act]()));
+$('#recentBtn').onclick = e => { e.stopPropagation(); actions.recent(); };
 
 on('menu', a => actions[a] && actions[a]());
 on('state:changed', () => api.State().then(apply));
 on('files:dropped', async paths => {
   for (const p of paths || []) {
-    const replace = S.view.designs.length === 0 && /\.(dst|tep)$/i.test(p);
+    const replace = S.view.designs.length === 0 && /\.(dst|pes|pec|jef|exp|tep)$/i.test(p);
     await run(() => api.OpenPath(p, replace));
   }
 });
@@ -707,7 +748,7 @@ document.addEventListener('keyup', e => { if (e.code === 'Space') spaceDown = fa
 
 // ---------------------------------------------------------------- dev-mode menu
 const MENUS = [
-  ['File', [['New', 'new', 'Ctrl+N'], ['Close tab', 'closeTab', 'Ctrl+W'], ['Open…', 'open', 'Ctrl+O'], ['Merge…', 'merge', 'Ctrl+M'], '-', ['Save project', 'save', 'Ctrl+S'], ['Save project as…', 'saveAs', 'Ctrl+Shift+S'], ['Export DST…', 'export', 'Ctrl+E'], '-', ['Production worksheet…', 'worksheet', 'Ctrl+P'], ['Print colour block analysis…', 'printBlocks', 'Ctrl+Shift+P']]],
+  ['File', [['New', 'new', 'Ctrl+N'], ['Close tab', 'closeTab', 'Ctrl+W'], ['Open…', 'open', 'Ctrl+O'], ['Open recent…', 'recent'], ['Merge…', 'merge', 'Ctrl+M'], '-', ['Save project', 'save', 'Ctrl+S'], ['Save project as…', 'saveAs', 'Ctrl+Shift+S'], ['Export DST…', 'export', 'Ctrl+E'], '-', ['Production worksheet…', 'worksheet', 'Ctrl+P'], ['Print colour block analysis…', 'printBlocks', 'Ctrl+Shift+P']]],
   ['Edit', [['Undo', 'undo', 'Ctrl+Z'], ['Redo', 'redo', 'Ctrl+Y'], '-', ['Duplicate', 'duplicate', 'Ctrl+D'], ['Delete', 'delete', 'Del']]],
   ['View', [['Zoom in', 'zoomIn', 'Ctrl+='], ['Zoom out', 'zoomOut', 'Ctrl+-'], ['Fit to hoop', 'fit', 'Ctrl+0'], ['Toggle jumps', 'toggleJumps', 'Ctrl+J'], '-', ['Sequence grid', 'grid', 'Ctrl+G']]],
   ['Design', [['Rotate 90°', 'rotate', 'Ctrl+R'], ['Mirror horizontal', 'mirror'], ['Mirror vertical', 'mirrorV'], ['Center selection', 'center'], ['Center all in hoop', 'centerAll'], '-', ['Add lettering', 'lettering', 'Ctrl+T']]],
@@ -780,6 +821,8 @@ hydrateIcons();
     R.fit(v.hoop);
     updateZoomLabel();
     setStatus('Ready');
+    renderQuickSends();
+    setInterval(renderQuickSends, 5000); // stick plugged in / pulled out
   } catch (e) {
     toast('Failed to start: ' + e.message, 'err');
     logError('startup: ' + (e.stack || e.message));

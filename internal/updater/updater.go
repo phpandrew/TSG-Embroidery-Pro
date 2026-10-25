@@ -304,13 +304,22 @@ func (u *Updater) Install(ctx context.Context, rel *Release) error {
 	return nil
 }
 
+// AfterUpdateFlag tells the relaunched app the old version is still exiting.
+const AfterUpdateFlag = "--after-update"
+
 // Restart launches the (new) executable; the caller must quit afterwards.
 func Restart() error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(exe, os.Args[1:]...)
+	var args []string
+	for _, a := range os.Args[1:] {
+		if a != AfterUpdateFlag {
+			args = append(args, a)
+		}
+	}
+	cmd := exec.Command(exe, append(args, AfterUpdateFlag)...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return cmd.Start()
 }

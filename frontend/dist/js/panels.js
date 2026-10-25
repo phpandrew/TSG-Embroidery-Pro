@@ -235,6 +235,11 @@ function letteringPanel(root) {
       <label class="f">Align<div class="seg lt-align"><button type="button" data-a="left">Left</button><button type="button" data-a="center">Centre</button><button type="button" data-a="right">Right</button></div></label>
       <label class="f ml-only">Line spacing (% of height)<input class="inp" id="lt-ls" type="number" step="5" min="80" max="400" value="${spec.lineSpacing || 150}"></label>
     </div>
+    <label class="f">Curve<div class="seg lt-arc"><button type="button" data-c="">Straight</button><button type="button" data-c="up">Arc up</button><button type="button" data-c="down">Arc down</button></div></label>
+    <div class="two arc-only">
+      <label class="f">Arc radius (mm)<input class="inp" id="lt-arcr" type="number" step="5" min="10" max="1000" placeholder="Auto" value="${spec.arcRadius ? (spec.arcRadius / 10).toFixed(0) : ''}"></label>
+      <p class="hint" style="align-self:end;margin:0 0 8px">Leave blank for auto. Smaller = tighter curve.</p>
+    </div>
     <label class="f">Font<div class="font-row"><select class="inp" id="lt-font">${fontOpts}</select>
       <button type="button" class="btn btn-ghost btn-sm" id="lt-browse" style="height:38px">${icon('grid', 15)} Browse…</button></div>
       <span class="check sm"><input type="checkbox" id="lt-win" ${S.showWinFonts ? 'checked' : ''}> Include Windows fonts</span></label>
@@ -278,6 +283,14 @@ function letteringPanel(root) {
     s.querySelector('.sys-only').style.display = kind === 'windows' ? '' : 'none';
   }
   s.querySelector('#lt-style').value = spec.style || 'fill';
+  let arc = spec.arc || '';
+  const arcBtns = s.querySelectorAll('.lt-arc button');
+  const showArc = () => {
+    arcBtns.forEach(b => b.classList.toggle('on', b.dataset.c === arc));
+    s.querySelector('.arc-only').style.display = arc ? '' : 'none';
+  };
+  arcBtns.forEach(b => b.onclick = e => { e.preventDefault(); arc = b.dataset.c; showArc(); live(); });
+  showArc();
   let align = spec.align || 'center';
   const alignBtns = s.querySelectorAll('.lt-align button');
   const showAlign = () => alignBtns.forEach(b => b.classList.toggle('on', b.dataset.a === align));
@@ -317,6 +330,8 @@ function letteringPanel(root) {
     fillAngle: parseFloat(s.querySelector('#lt-angle').value) || 0,
     lineSpacing: parseFloat(s.querySelector('#lt-ls').value) || 150,
     align,
+    arc,
+    arcRadius: (parseFloat(s.querySelector('#lt-arcr').value) || 0) * 10,
   });
   s.querySelector('#lt-add').onclick = async () => {
     const sp = read();
