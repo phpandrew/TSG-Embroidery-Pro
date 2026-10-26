@@ -196,6 +196,10 @@ func openFromArgs(a *app.App, ui *wailsUI, path string) {
 }
 
 func main() {
+	// headless administrator step of an update (see app.ElevatedUpdate)
+	if len(os.Args) == 3 && os.Args[1] == updater.ElevatedUpdateFlag {
+		os.Exit(app.ElevatedUpdate(os.Args[2]))
+	}
 	ui := &wailsUI{}
 	a := app.New(ui)
 	ui.app = a

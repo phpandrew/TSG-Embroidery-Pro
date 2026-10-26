@@ -26,6 +26,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -306,6 +307,38 @@ func (u *Updater) Install(ctx context.Context, rel *Release) error {
 
 // AfterUpdateFlag tells the relaunched app the old version is still exiting.
 const AfterUpdateFlag = "--after-update"
+
+// ElevatedUpdateFlag runs the app headless as administrator to install an
+// update into a protected folder such as C:\Program Files.
+const ElevatedUpdateFlag = "--elevated-update"
+
+// target is the file an update replaces.
+func (u *Updater) target() (string, error) {
+	if u.Target != "" {
+		return u.Target, nil
+	}
+	return os.Executable()
+}
+
+// CanReplace reports whether this user can write next to the executable.
+// Installs under Program Files can't without administrator approval.
+func (u *Updater) CanReplace() bool {
+	t, err := u.target()
+	if err != nil {
+		return false
+	}
+	f, err := os.CreateTemp(filepath.Dir(t), ".tsg-write-test-*")
+	if err != nil {
+		return false
+	}
+	name := f.Name()
+	f.Close()
+	os.Remove(name)
+	return true
+}
+
+// NeedsAdmin reports whether err from Install was a permission problem.
+func NeedsAdmin(err error) bool { return err != nil && isPermission(err) }
 
 // Restart launches the (new) executable; the caller must quit afterwards.
 func Restart() error {

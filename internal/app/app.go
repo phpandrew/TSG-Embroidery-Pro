@@ -141,6 +141,35 @@ func New(ui UI) *App {
 // SetUI swaps the platform layer (used once Wails has a context).
 func SetUI(a *App, ui UI) { a.ui = ui }
 
+// ElevatedUpdate is the headless administrator mode started by the UAC
+// prompt: it checks GitHub for exactly version tag, verifies the signed
+// checksums with the built-in key and installs it over this executable.
+// Returns the process exit code.
+func ElevatedUpdate(tag string) int {
+	if d, err := os.UserConfigDir(); err == nil {
+		applog.Init(filepath.Join(d, "TSG Embroidery Pro"))
+	}
+	applog.Infof("elevated update to %s requested", tag)
+	u := updater.New(version.Repo, version.Version)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	rel, err := u.Check(ctx, strings.Contains(tag, "-")) // pre-release tags look like v1.2.0-beta.1
+	if err != nil {
+		applog.Errorf("elevated update: %v", err)
+		return 2
+	}
+	if rel == nil || rel.Version != tag {
+		applog.Errorf("elevated update: %s is not the newest release (found %v)", tag, rel)
+		return 3
+	}
+	if err := u.Install(ctx, rel); err != nil {
+		applog.Errorf("elevated update: %v", err)
+		return 4
+	}
+	applog.Infof("elevated update to %s installed", tag)
+	return 0
+}
+
 // Startup is called by Wails when the window is ready.
 func Startup(a *App, ctx context.Context) {
 	a.ctx = ctx
@@ -578,8 +607,23 @@ func (a *App) InstallUpdate() error {
 	a.clearBackups()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	if err := a.upd.Install(ctx, a.pending); err != nil {
-		return err
+	// Installed somewhere only an administrator can change (C:\Program
+	// Files): hand the install to an elevated copy of the app (UAC prompt).
+	if !a.upd.CanReplace() {
+		applog.Infof("install folder needs admin rights; asking for approval")
+		if err := updater.InstallElevated(a.pending.Version); err != nil {
+			if errors.Is(err, updater.ErrElevationDeclined) {
+				return errors.New("update cancelled: Windows needs administrator approval to update a copy installed in Program Files")
+			}
+			return err
+		}
+	} else if err := a.upd.Install(ctx, a.pending); err != nil {
+		if !updater.NeedsAdmin(err) {
+			return err
+		}
+		if err := updater.InstallElevated(a.pending.Version); err != nil {
+			return err
+		}
 	}
 	if err := updater.Restart(); err != nil {
 		return fmt.Errorf("updated, but restart failed (please reopen the app): %w", err)
