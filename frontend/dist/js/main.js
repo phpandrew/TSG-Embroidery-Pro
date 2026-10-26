@@ -711,11 +711,41 @@ $('#recentBtn').onclick = e => { e.stopPropagation(); actions.recent(); };
 
 on('menu', a => actions[a] && actions[a]());
 on('state:changed', () => api.State().then(apply));
-on('files:dropped', async paths => {
+// ---------------------------------------------------------------- drag & drop
+// Drop files anywhere to open each in its own tab; drop them on the Designs
+// list to merge into the current design instead.
+const DESIGN_RE = /\.(dst|pes|pec|jef|exp|tep)$/i;
+async function handleDrop(paths, merge) {
   for (const p of paths || []) {
-    const replace = S.view.designs.length === 0 && /\.(dst|pes|pec|jef|exp|tep)$/i.test(p);
-    await run(() => api.OpenPath(p, replace));
+    if (/\.emb$/i.test(p)) { toast('EMB is Wilcom\'s own format and can\'t be read. Open it in Wilcom (or the free Wilcom TrueSizer) and save it as DST.', 'warn'); continue; }
+    if (!DESIGN_RE.test(p)) { toast(`Can't open ${p.split(/[\\/]/).pop()}: not a design file`, 'warn'); continue; }
+    const asMerge = merge && !/\.tep$/i.test(p) && S.view.designs.length > 0;
+    const r = await run(() => api.OpenPath(p, !asMerge));
+    if (r && !asMerge) { R.fit(S.view.hoop); updateZoomLabel(); redraw(); }
   }
+}
+const overSeq = (x, y) => { const el = document.elementFromPoint(x, y); return !!(el && el.closest('.panel.seq')); };
+if (window.runtime && window.runtime.OnFileDrop) {
+  window.runtime.OnFileDrop((x, y, paths) => { dropHint(false); handleDrop(paths, overSeq(x, y)); }, false);
+}
+// drop hint overlay
+let hintTimer = null;
+function dropHint(on, merge) {
+  const h = $('#dropHint');
+  if (!h) return;
+  h.hidden = !on;
+  if (on) h.textContent = merge ? 'Drop to merge into this design' : 'Drop to open (drop on the Designs list to merge)';
+}
+window.addEventListener('dragover', e => {
+  if (!e.dataTransfer || !e.dataTransfer.types.includes('Files')) return;
+  e.preventDefault();
+  dropHint(true, overSeq(e.clientX, e.clientY) && S.view && S.view.designs.length > 0);
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => dropHint(false), 300);
+});
+window.addEventListener('drop', e => {
+  dropHint(false);
+  if (!isDesktop && e.dataTransfer && e.dataTransfer.types.includes('Files')) e.preventDefault(); // browser dev server: no file paths
 });
 on('update:available', rel => showUpdate(rel));
 on('fonts:changed', () => api.State().then(v => apply(v)));

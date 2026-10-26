@@ -240,11 +240,13 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 246, G: 247, B: 249, A: 255},
 		AssetServer:      &assetserver.Options{Assets: assets},
 		Menu:             buildMenu(func(action string) { ui.Emit("menu", action) }),
-		DragAndDrop:      &options.DragAndDrop{EnableFileDrop: true},
+		// files dropped anywhere on the window are handled by the frontend
+		// (runtime.OnFileDrop in main.js). DisableWebViewDrop must stay off: on
+		// Windows it blocks external drags altogether.
+		DragAndDrop: &options.DragAndDrop{EnableFileDrop: true},
 		OnStartup: func(ctx context.Context) {
 			ui.ctx = ctx
 			app.Startup(a, ctx)
-			wr.OnFileDrop(ctx, func(_, _ int, paths []string) { ui.Emit("files:dropped", paths) })
 			if startupFile != "" {
 				go openFromArgs(a, ui, startupFile)
 			}

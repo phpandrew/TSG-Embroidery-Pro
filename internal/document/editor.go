@@ -307,6 +307,9 @@ func (e *Editor) ImportFile(path string) (string, error) {
 	if ext == ProjectExt {
 		return "", e.OpenProject(path)
 	}
+	if ext == ".emb" {
+		return "", errors.New("EMB is Wilcom's own format and can't be read: open it in Wilcom (or the free Wilcom TrueSizer) and save it as DST")
+	}
 	if ext != ".dst" && !formats.Supported(ext) {
 		return "", fmt.Errorf("unsupported file type %q (DST, %s)", ext, strings.ToUpper(strings.Join(formats.Exts(), ", ")))
 	}
