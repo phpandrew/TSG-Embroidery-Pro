@@ -3,25 +3,50 @@ import { api } from './api.js';
 import { esc, modal, toast } from './ui.js';
 import { S, actions, renderQuickSends } from './main.js';
 
-export async function openSettings() {
+let currentTab = 'general';
+
+export async function openSettings(tab) {
+  if (tab) currentTab = tab;
   let timer = null;
   await modal({
     title: 'Settings',
-    body: '<div class="settings" id="set-body"><p class="hint">Loading…</p></div>',
+    body: `<div class="settings-wrap">
+      <nav class="set-tabs" id="set-tabs">
+        <button data-t="general">General</button>
+        <button data-t="autoopen">Auto-open</button>
+        <button data-t="quicksend">Quick send</button>
+        <button data-t="updates">Updates</button>
+      </nav>
+      <div class="settings" id="set-body"><p class="hint">Loading…</p></div>
+    </div>`,
     buttons: [{ label: 'Close', kind: 'primary', value: true }],
     onOpen: back => {
       const root = back.querySelector('#set-body');
       back.querySelector('.modal').classList.add('settings-modal');
       const fail = e => toast(e.message || String(e), 'err');
+      const tabs = back.querySelectorAll('#set-tabs button');
+      const showTab = () => {
+        tabs.forEach(b => b.classList.toggle('on', b.dataset.t === currentTab));
+        root.querySelectorAll('.set-page').forEach(p => { p.hidden = p.dataset.t !== currentTab; });
+      };
+      tabs.forEach(b => b.onclick = () => { currentTab = b.dataset.t; showTab(); });
 
       const draw = (auto, prefs) => {
         root.innerHTML = `
+          <div class="set-page" data-t="general">
           <section class="set-sec">
             <h4>Startup</h4>
             ${auto.startupSupported
               ? `<label class="check"><input type="checkbox" id="st-start" ${auto.startWithWindows ? 'checked' : ''}> Launch TSG Embroidery Pro when Windows starts <span class="muted">(opens minimised in the taskbar)</span></label>`
               : '<p class="hint">Launch at startup is only available on Windows.</p>'}
           </section>
+          <section class="set-sec">
+            <h4>Help</h4>
+            <div class="set-row"><button class="btn btn-ghost btn-sm" id="st-logs">Open debug log folder</button></div>
+            <p class="hint">Version <b>${esc(S.info ? S.info.version : '')}</b></p>
+          </section>
+          </div>
+          <div class="set-page" data-t="autoopen">
           <section class="set-sec">
             <h4>Auto-open new designs</h4>
             <label class="check"><input type="checkbox" id="st-watch" ${auto.watchEnabled ? 'checked' : ''}> Open new DST files automatically when they land in this folder</label>
@@ -33,12 +58,16 @@ export async function openSettings() {
             <p class="set-status" id="st-status">${esc(auto.watchStatus)}</p>
             <p class="hint">Only a single new file is opened, in a new tab, and the window comes to the front. If several arrive at once (unzipping a batch) none are opened. Files already in the folder when the app starts are left alone.</p>
           </section>
+          </div>
+          <div class="set-page" data-t="quicksend">
           <section class="set-sec">
             <h4>Quick send</h4>
             <p class="hint">One-click buttons that export the current design as a DST straight to a machine's USB stick or folder. Each machine you add gets its own button on the toolbar.</p>
             <div id="qs-list"></div>
             <div class="set-row"><input class="inp qs-new" id="qs-name" placeholder="Machine name, e.g. Tajima 1" maxlength="40" style="height:34px;border:1px solid #d5d9df;border-radius:6px;padding:0 8px;flex:1;min-width:0"><button class="btn btn-ghost btn-sm" id="qs-add">Add machine…</button></div>
           </section>
+          </div>
+          <div class="set-page" data-t="updates">
           <section class="set-sec">
             <h4>Updates</h4>
             <p class="hint" style="margin:0 0 6px">You have version <b>${esc(S.info ? S.info.version : '')}</b></p>
@@ -47,10 +76,8 @@ export async function openSettings() {
             <div class="set-row"><button class="btn btn-ghost btn-sm" id="st-check">Check now</button></div>
             <p class="hint">Updates come from GitHub Releases and are installed only if their Ed25519 signature and SHA-256 checksum verify.</p>
           </section>
-          <section class="set-sec">
-            <h4>Help</h4>
-            <div class="set-row"><button class="btn btn-ghost btn-sm" id="st-logs">Open debug log folder</button></div>
-          </section>`;
+          </div>`;
+        showTab();
         const q = s => root.querySelector(s);
         const redraw = p => draw(p, prefs);
         const st = q('#st-start');
