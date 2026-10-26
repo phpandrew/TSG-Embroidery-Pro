@@ -445,3 +445,16 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; border: 1px
 .qs-dot.on { background: #1a9a55; }
 
 .drop-hint { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 50; pointer-events: none; background: rgba(22,104,227,.92); color: #fff; padding: 16px 26px; border-radius: 12px; font-size: 16px; font-weight: 600; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+
+/* picture → embroidery dialog */
+.imgd-modal { width: min(1100px, calc(100vw - 32px)); }
+.imgd { display: grid; grid-template-columns: 1fr 300px; gap: 18px; }
+.imgd-views { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 150px 360px; gap: 10px; }
+.imgd-views figure { margin: 0; background: #f4f5f7; border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.imgd-views figure.big { grid-column: 1 / span 2; }
+.imgd-views img { flex: 1; min-height: 0; width: 100%; object-fit: contain; background: repeating-conic-gradient(#e9ebef 0 25%, #fff 0 50%) 0 0 / 16px 16px; }
+.imgd-views figcaption { font-size: 12px; color: #6b7280; padding: 4px 8px; text-align: center; }
+.imgd-stats { margin-top: 10px; font-size: 13.5px; }
+.imgd-stats .sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; margin: 0 2px; vertical-align: -2px; border: 1px solid rgba(0,0,0,.15); }
+.imgd .warn-text { color: #b45309; }
+.imgd input[type=range] { width: 100%; }

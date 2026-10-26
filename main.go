@@ -34,15 +34,17 @@ type wailsUI struct {
 
 func (u *wailsUI) OpenFiles(title string, multi, project bool, dir string) ([]string, error) {
 	designs := "*.dst;*.DST;*.pes;*.PES;*.pec;*.PEC;*.jef;*.JEF;*.exp;*.EXP"
+	pictures := "*.png;*.PNG;*.jpg;*.JPG;*.jpeg;*.JPEG;*.gif;*.GIF;*.webp;*.WEBP;*.bmp;*.BMP;*.tif;*.tiff;*.TIF;*.TIFF;*.psd;*.PSD"
 	filters := []wr.FileFilter{
 		{DisplayName: "Embroidery designs (DST, PES, PEC, JEF, EXP)", Pattern: designs},
+		{DisplayName: "Pictures to digitize (PNG, JPEG, WebP, PSD…)", Pattern: pictures},
 		{DisplayName: "Tajima DST (*.dst)", Pattern: "*.dst;*.DST"},
 		{DisplayName: "Brother PES/PEC (*.pes, *.pec)", Pattern: "*.pes;*.PES;*.pec;*.PEC"},
 		{DisplayName: "Janome JEF (*.jef)", Pattern: "*.jef;*.JEF"},
 		{DisplayName: "Melco EXP (*.exp)", Pattern: "*.exp;*.EXP"},
 	}
 	if project {
-		filters = append([]wr.FileFilter{{DisplayName: "Designs and projects", Pattern: designs + ";*.tep"}}, filters...)
+		filters = append([]wr.FileFilter{{DisplayName: "Designs, pictures and projects", Pattern: designs + ";" + pictures + ";*.tep"}}, filters...)
 		filters = append(filters, wr.FileFilter{DisplayName: "Project (*.tep)", Pattern: "*.tep"})
 	}
 	opts := wr.OpenDialogOptions{Title: title, Filters: filters, DefaultDirectory: dir}
@@ -119,6 +121,7 @@ func buildMenu(emit func(string)) *menu.Menu {
 	file := m.AddSubmenu("File")
 	item(file, "New", keys.CmdOrCtrl("n"), "new")
 	item(file, "Open…", keys.CmdOrCtrl("o"), "open")
+	item(file, "Open picture to digitize…", nil, "openImage")
 	item(file, "Open recent…", nil, "recent")
 	item(file, "Close tab", keys.CmdOrCtrl("w"), "closeTab")
 	item(file, "Merge…", keys.CmdOrCtrl("m"), "merge")

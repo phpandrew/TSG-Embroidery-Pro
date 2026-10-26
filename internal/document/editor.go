@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -355,6 +356,136 @@ func (e *Editor) AddBlocks(name, source string, blocks [][]pattern.St) (string, 
 		return nil
 	})
 	return id, err
+}
+
+// AddColouredBlocks adds a design whose blocks come with their own colours
+// (auto-digitized artwork). Each colour gets its own palette entry, reusing
+// an existing thread when one is close enough.
+func (e *Editor) AddColouredBlocks(name, source string, blocks [][]pattern.St, colours []string) (string, error) {
+	var id string
+	err := e.mutate(func(d *Doc) error {
+		ds := &Design{ID: d.newID("d"), Name: name, Kind: KindFile, Source: source, Visible: true}
+		for i, b := range blocks {
+			col := ""
+			if i < len(colours) {
+				col = colours[i]
+			}
+			ds.Blocks = append(ds.Blocks, Block{Thread: d.threadForColour(col, i), Stitches: b})
+		}
+		ob := ds.OrigBounds()
+		ds.CX, ds.CY = ob.CenterX(), ob.CenterY()
+		ds.T = pattern.Identity(ds.CX, ds.CY)
+		d.Designs = append(d.Designs, ds)
+		if len(d.Designs) == 1 && (d.Name == "" || d.Name == "Untitled") {
+			d.Name = name
+		}
+		id = ds.ID
+		return nil
+	})
+	return id, err
+}
+
+// threadForColour finds a palette thread within a small distance of col
+// (#rrggbb), or adds a new one named after the colour.
+func (d *Doc) threadForColour(col string, n int) string {
+	if !validColor(col) {
+		return d.threadFor(n)
+	}
+	r, g, b := hexRGB(col)
+	for _, t := range d.Threads {
+		tr, tg, tb := hexRGB(t.Color)
+		if (r-tr)*(r-tr)+(g-tg)*(g-tg)+(b-tb)*(b-tb) < 24*24 {
+			return t.ID
+		}
+	}
+	t := Thread{ID: d.newID("t"), Name: colourName(r, g, b), Color: strings.ToLower(col)}
+	i := len(d.Threads)
+	t.Needle = i + 1
+	if d.Settings.Needles > 0 {
+		t.Needle = i%d.Settings.Needles + 1
+	}
+	d.Threads = append(d.Threads, t)
+	return t.ID
+}
+
+func hexRGB(c string) (int, int, int) {
+	if len(c) != 7 {
+		return 0, 0, 0
+	}
+	v, err := strconv.ParseUint(c[1:], 16, 32)
+	if err != nil {
+		return 0, 0, 0
+	}
+	return int(v >> 16), int(v >> 8 & 255), int(v & 255)
+}
+
+// colourName gives a rough human name for an RGB colour.
+func colourName(r, g, b int) string {
+	mx, mn := max(r, g, b), min(r, g, b)
+	if mx-mn < 28 {
+		switch {
+		case mx < 50:
+			return "Black"
+		case mx < 120:
+			return "Dark grey"
+		case mx < 200:
+			return "Grey"
+		case mx < 240:
+			return "Light grey"
+		}
+		return "White"
+	}
+	// hue in degrees
+	var h float64
+	fr, fg, fb := float64(r), float64(g), float64(b)
+	d := float64(mx - mn)
+	switch mx {
+	case r:
+		h = math.Mod((fg-fb)/d, 6)
+	case g:
+		h = (fb-fr)/d + 2
+	default:
+		h = (fr-fg)/d + 4
+	}
+	h *= 60
+	if h < 0 {
+		h += 360
+	}
+	dark := mx < 110
+	name := ""
+	switch {
+	case h < 15 || h >= 345:
+		name = "Red"
+	case h < 40:
+		name = "Orange"
+		if dark || (mx < 180 && mn < 60) {
+			name = "Brown"
+		}
+	case h < 70:
+		name = "Yellow"
+		if dark {
+			name = "Olive"
+		}
+	case h < 160:
+		name = "Green"
+	case h < 200:
+		name = "Teal"
+	case h < 250:
+		name = "Blue"
+	case h < 290:
+		name = "Purple"
+	default:
+		name = "Pink"
+		if dark {
+			name = "Maroon"
+		}
+	}
+	if dark && name != "Brown" && name != "Olive" && name != "Maroon" {
+		name = "Dark " + strings.ToLower(name)
+	} else if mn > 170 && name != "Brown" {
+		name = "Light " + strings.ToLower(name)
+	}
+	return name
 }
 
 // OpenFile replaces the document with a single file (or project).

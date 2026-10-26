@@ -7,6 +7,7 @@ import { openWorksheet, openSequenceGrid } from './worksheet.js';
 import { openColorBlockPrint } from './print.js';
 import { openFontGallery, fontOptions, loadFavourites } from './fontgallery.js';
 import { openSettings } from './settings.js';
+import { openImageDialog } from './imagedialog.js';
 
 // ---------------------------------------------------------------- state
 export const S = {
@@ -691,6 +692,7 @@ export const actions = {
   checkUpdates: () => checkUpdates(true),
   logs: () => api.OpenLogFolder().catch(e => toast(e.message, 'err')),
   settings: () => openSettings(),
+  openImage: () => api.OpenImage().then(p => { if (p) openImageDialog(p); }).catch(e => toast(e.message || String(e), 'err')),
   recent: () => { const b = $('#recentBtn').getBoundingClientRect(); recentMenu(b.left, b.bottom + 4); },
   github: () => api.OpenRepoPage(),
   about: async () => {
@@ -714,11 +716,12 @@ on('state:changed', () => api.State().then(apply));
 // ---------------------------------------------------------------- drag & drop
 // Drop files anywhere to open each in its own tab; drop them on the Designs
 // list to merge into the current design instead.
-const DESIGN_RE = /\.(dst|pes|pec|jef|exp|tep)$/i;
+const DESIGN_RE = /\.(dst|pes|pec|jef|exp|tep|png|jpe?g|gif|webp|bmp|tiff?|psd)$/i;
 async function handleDrop(paths, merge) {
   for (const p of paths || []) {
     if (/\.emb$/i.test(p)) { toast('EMB is Wilcom\'s own format and can\'t be read. Open it in Wilcom (or the free Wilcom TrueSizer) and save it as DST.', 'warn'); continue; }
     if (!DESIGN_RE.test(p)) { toast(`Can't open ${p.split(/[\\/]/).pop()}: not a design file`, 'warn'); continue; }
+    if (/\.(png|jpe?g|gif|webp|bmp|tiff?|psd)$/i.test(p)) { await openImageDialog(p); continue; }
     const asMerge = merge && !/\.tep$/i.test(p) && S.view.designs.length > 0;
     const r = await run(() => api.OpenPath(p, !asMerge));
     if (r && !asMerge) { R.fit(S.view.hoop); updateZoomLabel(); redraw(); }
@@ -750,6 +753,7 @@ window.addEventListener('drop', e => {
 on('update:available', rel => showUpdate(rel));
 on('fonts:changed', () => api.State().then(v => apply(v)));
 on('watch:opened', name => toast(`Opened new download: ${name}`));
+on('image:open', path => openImageDialog(path));
 on('watch:many', d => toast(`${d.count} new DST files arrived together in ${d.dir} — open the one you need with Open.`, 'warn'));
 on('watch:error', msg => toast(`Couldn't open the new file: ${msg}`, 'err'));
 
@@ -778,7 +782,7 @@ document.addEventListener('keyup', e => { if (e.code === 'Space') spaceDown = fa
 
 // ---------------------------------------------------------------- dev-mode menu
 const MENUS = [
-  ['File', [['New', 'new', 'Ctrl+N'], ['Close tab', 'closeTab', 'Ctrl+W'], ['Open…', 'open', 'Ctrl+O'], ['Open recent…', 'recent'], ['Merge…', 'merge', 'Ctrl+M'], '-', ['Save project', 'save', 'Ctrl+S'], ['Save project as…', 'saveAs', 'Ctrl+Shift+S'], ['Export DST…', 'export', 'Ctrl+E'], '-', ['Production worksheet…', 'worksheet', 'Ctrl+P'], ['Print colour block analysis…', 'printBlocks', 'Ctrl+Shift+P']]],
+  ['File', [['New', 'new', 'Ctrl+N'], ['Close tab', 'closeTab', 'Ctrl+W'], ['Open…', 'open', 'Ctrl+O'], ['Open picture to digitize…', 'openImage'], ['Open recent…', 'recent'], ['Merge…', 'merge', 'Ctrl+M'], '-', ['Save project', 'save', 'Ctrl+S'], ['Save project as…', 'saveAs', 'Ctrl+Shift+S'], ['Export DST…', 'export', 'Ctrl+E'], '-', ['Production worksheet…', 'worksheet', 'Ctrl+P'], ['Print colour block analysis…', 'printBlocks', 'Ctrl+Shift+P']]],
   ['Edit', [['Undo', 'undo', 'Ctrl+Z'], ['Redo', 'redo', 'Ctrl+Y'], '-', ['Duplicate', 'duplicate', 'Ctrl+D'], ['Delete', 'delete', 'Del']]],
   ['View', [['Zoom in', 'zoomIn', 'Ctrl+='], ['Zoom out', 'zoomOut', 'Ctrl+-'], ['Fit to hoop', 'fit', 'Ctrl+0'], ['Toggle jumps', 'toggleJumps', 'Ctrl+J'], '-', ['Sequence grid', 'grid', 'Ctrl+G']]],
   ['Design', [['Rotate 90°', 'rotate', 'Ctrl+R'], ['Mirror horizontal', 'mirror'], ['Mirror vertical', 'mirrorV'], ['Center selection', 'center'], ['Center all in hoop', 'centerAll'], '-', ['Add lettering', 'lettering', 'Ctrl+T']]],

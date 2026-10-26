@@ -73,15 +73,16 @@ type WindowPrefs struct {
 
 // App is bound to the frontend.
 type App struct {
-	ctx     context.Context
-	ui      UI
-	fonts   *lettering.Registry
-	tabsMu  sync.Mutex
-	tabs    []*tab
-	active  int
-	nextTab int
-	watch   *watcher
-	watchMu sync.Mutex
+	ctx      context.Context
+	ui       UI
+	fonts    *lettering.Registry
+	tabsMu   sync.Mutex
+	tabs     []*tab
+	active   int
+	nextTab  int
+	watch    *watcher
+	watchMu  sync.Mutex
+	imgCache imageCache
 	// auto-backup
 	session  string
 	backupMu sync.Mutex
@@ -308,6 +309,10 @@ func (a *App) Open() (document.View, error) {
 		return a.view(err)
 	}
 	applog.Infof("open %q", files[0])
+	if IsImagePath(files[0]) {
+		a.ui.Emit("image:open", files[0])
+		return a.view(nil)
+	}
 	return a.view(a.openInTab(files[0]))
 }
 
@@ -337,6 +342,11 @@ func (a *App) Merge() (document.View, error) {
 func (a *App) OpenPath(path string, replace bool) (document.View, error) {
 	applog.Infof("open path %q replace=%v", path, replace)
 	a.rememberDir(false, path)
+	if IsImagePath(path) {
+		// pictures need the conversion dialog: hand the path back to the UI
+		a.ui.Emit("image:open", path)
+		return a.view(nil)
+	}
 	if replace {
 		return a.view(a.openInTab(path))
 	}
