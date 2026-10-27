@@ -38,7 +38,16 @@ type Options struct {
 	Angle            float64 // fill angle, degrees
 	Spacing          float64 // row spacing, default 4 = 0.4 mm
 	Outline          bool    // running-stitch outline around each colour area
-	Underlay         bool
+	Underlay         bool    // underlay under fills and satin (recommended)
+	PullComp         float64 // grow every shape by this much, 0.1 mm (default 2.5)
+	NoSatin          bool    // force tatami everywhere (satin is used for narrow shapes by default)
+}
+
+// Stats describes how the artwork was stitched.
+type Stats struct {
+	SatinRegions int
+	FillRegions  int
+	Trims        int
 }
 
 func (o *Options) defaults() {
@@ -57,6 +66,9 @@ func (o *Options) defaults() {
 	if o.Spacing <= 0 {
 		o.Spacing = 4
 	}
+	if o.PullComp < 0 {
+		o.PullComp = 0
+	}
 }
 
 // Result is the stitched artwork: one block per colour, with the colour each
@@ -66,8 +78,9 @@ type Result struct {
 	Colors []color.RGBA // one per block
 	Width  float64      // 0.1 mm
 	Height float64
-	// Labels is the reduced image (for a preview), nil when not requested
+	// Preview is the reduced image
 	Preview *image.NRGBA
+	Stats   Stats
 }
 
 const (
@@ -189,24 +202,72 @@ func Convert(img image.Image, o Options) (*Result, error) {
 		}
 		return lum(palette[jobs[i].idx]) > lum(palette[jobs[j].idx])
 	})
-	for _, j := range jobs {
-		shapes := traceContours(labels, w, h, j.idx, unit)
-		if len(shapes) == 0 {
-			continue
+	pullPx := int(math.Round(o.PullComp / unit)) // pull compensation in working pixels
+	var lastEnd *stitchgen.Pt
+	for ji, j := range jobs {
+		// pull compensation: grow this colour's area so it sews to size and
+		// tucks under its neighbours (later colours cover the overlap)
+		lab := labels
+		if pullPx > 0 {
+			lab = dilate(labels, w, h, j.idx, pullPx)
 		}
-		var block []pattern.St
-		for _, group := range groupShapes(shapes) {
-			sts := stitchgen.FillShapes(group, stitchgen.FillOptions{Angle: o.Angle, Spacing: o.Spacing, Underlay: o.Underlay})
-			block = append(block, sts...)
-			if o.Outline {
-				for _, poly := range group {
-					block = append(block, stitchgen.Outline(poly, 25)...)
+		dist := distanceTransform(maskOf(lab, j.idx), w, h)
+		var pieces [][]pattern.St // one per region, ordered afterwards
+		for _, r := range regions(lab, w, h, j.idx) {
+			if ribbon, _ := isRibbon(r, dist, unit); ribbon && !o.NoSatin {
+				if sts := satinRegion(lab, w, h, r, dist, unit, o); pattern.Count(sts).Stitches > 0 {
+					pieces = append(pieces, sts)
+					res.Stats.SatinRegions++
+					continue
+				}
+			}
+			sub := regionLabels(lab, r, w*h)
+			shapes := traceContours(sub, w, h, 1, unit)
+			if len(shapes) == 0 {
+				continue
+			}
+			for _, group := range groupShapes(shapes) {
+				sts := stitchgen.FillShapes(group, stitchgen.FillOptions{Angle: o.Angle, Spacing: o.Spacing, Underlay: o.Underlay})
+				if o.Outline {
+					for _, poly := range group {
+						sts = append(sts, stitchgen.Outline(poly, 25)...)
+					}
+				}
+				if pattern.Count(sts).Stitches > 0 {
+					pieces = append(pieces, sts)
+					res.Stats.FillRegions++
 				}
 			}
 		}
-		if pattern.Count(block).Stitches == 0 {
+		if len(pieces) == 0 {
 			continue
 		}
+		// sew the pieces in nearest-neighbour order from where the needle is,
+		// so the machine isn't sent back and forth across the design
+		// travel (hidden running stitches) is allowed across this colour's own
+		// area and across anything a later colour will sew over
+		covered := make([]bool, len(labels))
+		for _, later := range jobs[ji:] {
+			for i, l := range lab {
+				if l == later.idx || labels[i] == later.idx {
+					covered[i] = true
+				}
+			}
+		}
+		canTravel := func(a, b stitchgen.Pt) bool {
+			n := int(math.Hypot(b.X-a.X, b.Y-a.Y)/5) + 1
+			for i := 0; i <= n; i++ {
+				t := float64(i) / float64(n)
+				x := int((a.X + (b.X-a.X)*t) / unit)
+				y := int((a.Y + (b.Y-a.Y)*t) / unit)
+				if x < 0 || y < 0 || x >= w || y >= h || !covered[y*w+x] {
+					return false
+				}
+			}
+			return true
+		}
+		block, end := orderPieces(pieces, lastEnd, canTravel)
+		lastEnd = &end
 		res.Blocks = append(res.Blocks, block)
 		c := palette[j.idx]
 		res.Colors = append(res.Colors, color.RGBA{uint8(c[0] + .5), uint8(c[1] + .5), uint8(c[2] + .5), 255})
@@ -716,4 +777,118 @@ func pointIn(p stitchgen.Pt, poly []stitchgen.Pt) bool {
 		}
 	}
 	return in
+}
+
+// maskOf is the boolean mask of label c.
+func maskOf(labels []int, c int) []bool {
+	m := make([]bool, len(labels))
+	for i, l := range labels {
+		m[i] = l == c
+	}
+	return m
+}
+
+// regionLabels returns a label map with 1 for the region's pixels, 0 elsewhere.
+func regionLabels(labels []int, r region, n int) []int {
+	out := make([]int, n)
+	for _, i := range r.px {
+		out[i] = 1
+	}
+	return out
+}
+
+// dilate grows label c by rad pixels (round brush) into every other label
+// and into the background, returning a new label map.
+func dilate(labels []int, w, h, c, rad int) []int {
+	out := make([]int, len(labels))
+	copy(out, labels)
+	var offs [][2]int
+	for dy := -rad; dy <= rad; dy++ {
+		for dx := -rad; dx <= rad; dx++ {
+			if dx*dx+dy*dy <= rad*rad {
+				offs = append(offs, [2]int{dx, dy})
+			}
+		}
+	}
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			if labels[y*w+x] != c {
+				continue
+			}
+			for _, d := range offs {
+				xx, yy := x+d[0], y+d[1]
+				if xx >= 0 && yy >= 0 && xx < w && yy < h {
+					out[yy*w+xx] = c
+				}
+			}
+		}
+	}
+	return out
+}
+
+// orderPieces concatenates pieces nearest-neighbour from start, joining them
+// with jumps, and returns the block plus where the needle ends.
+func orderPieces(pieces [][]pattern.St, start *stitchgen.Pt, canTravel func(a, b stitchgen.Pt) bool) ([]pattern.St, stitchgen.Pt) {
+	first := func(p []pattern.St) stitchgen.Pt {
+		for _, s := range p {
+			if s.Cmd == pattern.Stitch || s.Cmd == pattern.Jump {
+				return stitchgen.Pt{X: s.X, Y: s.Y}
+			}
+		}
+		return stitchgen.Pt{}
+	}
+	last := func(p []pattern.St) stitchgen.Pt {
+		for i := len(p) - 1; i >= 0; i-- {
+			if p[i].Cmd == pattern.Stitch || p[i].Cmd == pattern.Jump {
+				return stitchgen.Pt{X: p[i].X, Y: p[i].Y}
+			}
+		}
+		return stitchgen.Pt{}
+	}
+	cur := stitchgen.Pt{}
+	if start != nil {
+		cur = *start
+	} else if len(pieces) > 0 {
+		// no history: begin with the largest piece's start
+		big := 0
+		for i, p := range pieces {
+			if len(p) > len(pieces[big]) {
+				big = i
+			}
+		}
+		cur = first(pieces[big])
+	}
+	used := make([]bool, len(pieces))
+	var out []pattern.St
+	for n := 0; n < len(pieces); n++ {
+		best, bd := -1, math.Inf(1)
+		for i, p := range pieces {
+			if used[i] {
+				continue
+			}
+			f := first(p)
+			if d := math.Hypot(f.X-cur.X, f.Y-cur.Y); d < bd {
+				best, bd = i, d
+			}
+		}
+		used[best] = true
+		p := pieces[best]
+		f := first(p)
+		if len(out) > 0 {
+			if canTravel != nil && bd > 1 && bd < 400 && canTravel(cur, f) {
+				// walk there under the stitching instead of a jump + trim
+				for _, t := range stitchgen.Resample([]stitchgen.Pt{cur, f}, 25)[1:] {
+					out = append(out, pattern.St{X: t.X, Y: t.Y, Cmd: pattern.Stitch})
+				}
+				if p[0].Cmd == pattern.Jump && len(p) > 1 && p[0].X == p[1].X && p[0].Y == p[1].Y {
+					p = p[1:] // the piece's own leading jump is now redundant
+				}
+			} else if p[0].Cmd != pattern.Jump {
+				out = append(out, pattern.St{X: f.X, Y: f.Y, Cmd: pattern.Jump})
+			}
+		}
+		out = append(out, p...)
+		cur = last(p)
+	}
+	return out, cur
 }

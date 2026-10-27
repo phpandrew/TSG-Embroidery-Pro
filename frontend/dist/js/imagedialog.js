@@ -29,8 +29,10 @@ export async function openImageDialog(path) {
         <label class="f">Fill angle (°)<input class="inp" id="im-a" type="number" min="-90" max="90" step="5" value="${spec.angle}"></label>
         <label class="f">Density (mm)<input class="inp" id="im-den" type="number" min="0.3" max="0.8" step="0.05" value="${spec.density}"></label>
       </div>
+      <label class="check"><input type="checkbox" id="im-sat" ${spec.noSatin ? '' : 'checked'}> Satin for thin shapes <span class="muted">(strokes, outlines under ~5 mm)</span></label>
+      <label class="check"><input type="checkbox" id="im-ul" ${spec.underlay ? 'checked' : ''}> Underlay <span class="muted">(recommended)</span></label>
+      <label class="f">Pull compensation (mm) <span class="muted">grows shapes so they sew to size</span><input class="inp" id="im-pc" type="number" min="0" max="1" step="0.05" value="${spec.pullComp ?? 0.25}"></label>
       <label class="check"><input type="checkbox" id="im-ol"> Running-stitch outline around each colour</label>
-      <label class="check"><input type="checkbox" id="im-ul"> Underlay <span class="muted">(stabilises large fills)</span></label>
       <p class="hint">Works best on flat artwork: logos, clip art, text as a picture. Photos and gradients come out as blobs — reduce the colours. Always test-sew.</p>
     </div>
   </div>`;
@@ -56,6 +58,7 @@ export async function openImageDialog(path) {
           angle: parseFloat(q('#im-a').value) || 0,
           density: parseFloat(q('#im-den').value) || 0.4,
           outline: q('#im-ol').checked, underlay: q('#im-ul').checked,
+          pullComp: parseFloat(q('#im-pc').value) || 0, noSatin: !q('#im-sat').checked,
         };
         q('#im-cn').textContent = spec.colors;
         q('#im-dn').textContent = spec.minDetail + ' mm²';
@@ -71,7 +74,7 @@ export async function openImageDialog(path) {
           last = r;
           q('#im-red').src = r.reduced;
           q('#im-st').src = r.stitches;
-          q('#im-stats').innerHTML = `${esc(r.widthMM.toFixed(1))} × ${esc(r.heightMM.toFixed(1))} mm · <b>${r.count.toLocaleString()}</b> stitches · ${r.blocks} colour${r.blocks === 1 ? '' : 's'} ` +
+          q('#im-stats').innerHTML = `${esc(r.widthMM.toFixed(1))} × ${esc(r.heightMM.toFixed(1))} mm · <b>${r.count.toLocaleString()}</b> stitches · ${r.blocks} colour${r.blocks === 1 ? '' : 's'} · ${r.satin} satin, ${r.fills} fill area${r.fills === 1 ? '' : 's'} · ${r.jumps} jump${r.jumps === 1 ? '' : 's'} ` +
             r.colors.map(c => `<i class="sw" style="background:${esc(c)}"></i>`).join('') + (r.warning ? `<br><span class="warn-text">${esc(r.warning)}</span>` : '');
         } catch (e) {
           last = null;

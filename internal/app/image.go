@@ -44,6 +44,8 @@ type ImageSpec struct {
 	Density          float64 `json:"density"` // row spacing, mm
 	Outline          bool    `json:"outline"`
 	Underlay         bool    `json:"underlay"`
+	PullComp         float64 `json:"pullComp"` // mm
+	NoSatin          bool    `json:"noSatin"`  // tatami everywhere
 }
 
 // ImagePreviewResult is what the dialog shows.
@@ -54,6 +56,9 @@ type ImagePreviewResult struct {
 	Colors   []string `json:"colors"`
 	Count    int      `json:"count"`
 	Blocks   int      `json:"blocks"`
+	Satin    int      `json:"satin"` // regions sewn as satin
+	Fills    int      `json:"fills"`
+	Jumps    int      `json:"jumps"`
 	WidthMM  float64  `json:"widthMM"`
 	HeightMM float64  `json:"heightMM"`
 	Warning  string   `json:"warning,omitempty"`
@@ -96,6 +101,8 @@ func (s ImageSpec) options() autodigitize.Options {
 		Spacing:          s.Density * 10,
 		Outline:          s.Outline,
 		Underlay:         s.Underlay,
+		PullComp:         s.PullComp * 10,
+		NoSatin:          s.NoSatin,
 	}
 }
 
@@ -119,7 +126,7 @@ func (a *App) ImageInfo(path string) (ImageSpec, error) {
 	}
 	return ImageSpec{
 		Path: path, Width: float64(int(w)), Colors: 4, RemoveBackground: true,
-		MinDetail: 2, Angle: 45, Density: 0.4,
+		MinDetail: 2, Angle: 45, Density: 0.4, Underlay: true, PullComp: 0.25,
 	}, nil
 }
 
@@ -138,10 +145,13 @@ func (a *App) ImagePreview(spec ImageSpec, pxW, pxH int) (ImagePreviewResult, er
 	var cols []color.RGBA
 	var hex []string
 	total := 0
+	var out0 ImagePreviewResult
 	for i, c := range res.Colors {
 		cols = append(cols, c)
 		hex = append(hex, fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B))
-		total += pattern.Count(res.Blocks[i]).Stitches
+		c := pattern.Count(res.Blocks[i])
+		total += c.Stitches
+		out0.Jumps += c.Jumps
 	}
 	stPNG, err := preview.PNG(res.Blocks, cols, pxW, pxH)
 	if err != nil {
@@ -151,6 +161,7 @@ func (a *App) ImagePreview(spec ImageSpec, pxW, pxH int) (ImagePreviewResult, er
 		Reduced:  dataURL(res.Preview),
 		Stitches: "data:image/png;base64," + base64.StdEncoding.EncodeToString(stPNG),
 		Colors:   hex, Count: total, Blocks: len(res.Blocks),
+		Satin: res.Stats.SatinRegions, Fills: res.Stats.FillRegions, Jumps: out0.Jumps,
 		WidthMM: res.Width / 10, HeightMM: res.Height / 10,
 	}
 	if total > 60000 {

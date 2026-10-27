@@ -99,3 +99,24 @@ func TestDecodePSD(t *testing.T) {
 		t.Fatal("empty PSD")
 	}
 }
+
+func TestSatinForThinShapes(t *testing.T) {
+	f, err := os.Open("testdata/strokes.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	img, _ := Decode(f)
+	res, err := Convert(img, Options{Width: 1000, Colors: 3, RemoveBackground: true, Underlay: true, PullComp: 2.5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Stats.SatinRegions != 2 || res.Stats.FillRegions != 2 {
+		t.Fatalf("expected ring + diagonal as satin and bar + block as fill, got satin=%d fill=%d", res.Stats.SatinRegions, res.Stats.FillRegions)
+	}
+	// forcing tatami everywhere
+	res2, _ := Convert(img, Options{Width: 1000, Colors: 3, RemoveBackground: true, NoSatin: true})
+	if res2.Stats.SatinRegions != 0 {
+		t.Fatal("NoSatin should disable satin")
+	}
+}
