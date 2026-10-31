@@ -2,6 +2,7 @@ package lettering
 
 import (
 	"fmt"
+	"io"
 	"io/fs"
 	"math"
 	"os"
@@ -33,11 +34,18 @@ type sysFont struct {
 	path  string
 	index int // font index inside a .ttc collection
 
-	once sync.Once
-	err  error
-	f    *sfnt.Font
-	capH float64 // cap height in font units
-	upm  float64
+	reg *Registry
+
+	// lmu guards the loaded font: readers hold it shared while using f.f;
+	// unload (when the font drops out of the recently-used set) takes it
+	// exclusively and frees the font file and generated stitches.
+	lmu    sync.RWMutex
+	loaded bool
+	err    error
+	file   *os.File // font tables are read from disk on demand
+	f      *sfnt.Font
+	capH   float64 // cap height in font units
+	upm    float64
 
 	mu    sync.Mutex
 	cache map[string]sysGlyph
@@ -52,41 +60,75 @@ func (f *sysFont) Name() string    { return f.name }
 func (f *sysFont) Native() float64 { return 0 }
 func (f *sysFont) Path() string    { return f.path }
 
-func (f *sysFont) load() error {
-	f.once.Do(func() {
-		data, err := os.ReadFile(f.path)
-		if err != nil {
-			f.err = err
-			return
+// acquire loads the font if needed and returns with f.lmu read-locked;
+// the caller must call f.lmu.RUnlock().
+func (f *sysFont) acquire() error {
+	for {
+		f.lmu.RLock()
+		if f.loaded {
+			return f.err
 		}
-		f.f, f.err = parseIndex(data, f.index)
-		if f.err != nil {
-			return
+		f.lmu.RUnlock()
+		f.lmu.Lock()
+		if !f.loaded {
+			f.doLoad()
 		}
-		f.upm = float64(f.f.UnitsPerEm())
-		f.capH = f.upm * 0.7
-		var buf sfnt.Buffer
-		for _, r := range "HIEX" {
-			if segs, ok := f.outline(&buf, r); ok {
-				b := segBounds(segs)
-				if b.Height() > 0 {
-					f.capH = b.Height()
-					break
-				}
-			}
-		}
-		f.cache = map[string]sysGlyph{}
-	})
-	return f.err
+		f.lmu.Unlock()
+	}
 }
 
-func parseIndex(data []byte, index int) (*sfnt.Font, error) {
+func (f *sysFont) doLoad() {
+	f.loaded = true
+	f.err = nil
+	fh, err := os.Open(f.path)
+	if err != nil {
+		f.err = err
+		return
+	}
+	f.f, f.err = parseIndexAt(fh, f.index)
+	if f.err != nil {
+		fh.Close()
+		return
+	}
+	f.file = fh
+	f.upm = float64(f.f.UnitsPerEm())
+	f.capH = f.upm * 0.7
+	var buf sfnt.Buffer
+	for _, r := range "HIEX" {
+		if segs, ok := f.outline(&buf, r); ok {
+			b := segBounds(segs)
+			if b.Height() > 0 {
+				f.capH = b.Height()
+				break
+			}
+		}
+	}
+	f.mu.Lock()
+	f.cache = map[string]sysGlyph{}
+	f.mu.Unlock()
+}
+
+// unload frees the parsed font file and cached stitches.
+func (f *sysFont) unload() {
+	f.lmu.Lock()
+	if f.file != nil {
+		f.file.Close()
+	}
+	f.loaded, f.err, f.f, f.file = false, nil, nil, nil
+	f.mu.Lock()
+	f.cache = nil
+	f.mu.Unlock()
+	f.lmu.Unlock()
+}
+
+// parseIndexAt parses font index of a file without reading it all into memory.
+func parseIndexAt(r io.ReaderAt, index int) (*sfnt.Font, error) {
 	if index == 0 {
-		if f, err := sfnt.Parse(data); err == nil {
+		if f, err := sfnt.ParseReaderAt(r); err == nil {
 			return f, nil
 		}
 	}
-	c, err := sfnt.ParseCollection(data)
+	c, err := sfnt.ParseCollectionReaderAt(r)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +205,19 @@ func segBounds(contours [][]stitchgen.Pt) pattern.Rect {
 }
 
 func (f *sysFont) Glyph(r rune, s Spec) ([]pattern.St, float64, bool) {
-	if f.load() != nil {
+	sts, adv, ok := f.glyph(r, s)
+	// mark as recently used only after releasing our own lock: touch may
+	// unload other fonts, and must never wait on a lock we hold
+	if f.reg != nil {
+		f.reg.touch(f)
+	}
+	return sts, adv, ok
+}
+
+func (f *sysFont) glyph(r rune, s Spec) ([]pattern.St, float64, bool) {
+	err := f.acquire()
+	defer f.lmu.RUnlock()
+	if err != nil {
 		return nil, 0, false
 	}
 	style := s.Style
@@ -230,7 +284,7 @@ func (f *sysFont) Glyph(r rune, s Spec) ([]pattern.St, float64, bool) {
 		}
 	}
 	f.mu.Lock()
-	if len(f.cache) > 2000 {
+	if f.cache == nil || len(f.cache) > 500 {
 		f.cache = map[string]sysGlyph{}
 	}
 	f.cache[key] = sysGlyph{sts: sts, adv: advance}
@@ -243,7 +297,9 @@ func clone(s []pattern.St) []pattern.St { return append([]pattern.St(nil), s...)
 // Kern implements kerner (0.1 mm at native size; sysFont has no native size,
 // so the value returned is already in 0.1 mm per unit height k=1 below).
 func (f *sysFont) kernAt(prev, cur rune, height float64) float64 {
-	if f.load() != nil {
+	err := f.acquire()
+	defer f.lmu.RUnlock()
+	if err != nil {
 		return 0
 	}
 	var buf sfnt.Buffer
@@ -299,14 +355,16 @@ func (r *Registry) LoadSystemFonts(dirs []string) int {
 			if fi, err := d.Info(); err != nil || fi.Size() > 40<<20 {
 				return nil
 			}
-			data, err := os.ReadFile(p)
+			// read only the tables needed for names, not the whole file
+			fh, err := os.Open(p)
 			if err != nil {
 				return nil
 			}
+			defer fh.Close()
 			var fonts []*sfnt.Font
-			if f, err := sfnt.Parse(data); err == nil {
+			if f, err := sfnt.ParseReaderAt(fh); err == nil {
 				fonts = []*sfnt.Font{f}
-			} else if c, err := sfnt.ParseCollection(data); err == nil {
+			} else if c, err := sfnt.ParseCollectionReaderAt(fh); err == nil {
 				for i := 0; i < c.NumFonts(); i++ {
 					if f, err := c.Font(i); err == nil {
 						fonts = append(fonts, f)
@@ -344,7 +402,7 @@ func (r *Registry) LoadSystemFonts(dirs []string) int {
 					name += " (Windows)"
 					key = strings.ToLower(name)
 				}
-				r.fonts[key] = &sysFont{name: name, path: p, index: i}
+				r.fonts[key] = &sysFont{name: name, path: p, index: i, reg: r}
 				r.mu.Unlock()
 				n++
 			}

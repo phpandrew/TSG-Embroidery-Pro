@@ -10,6 +10,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 
@@ -87,8 +88,36 @@ func (a *App) loadImage(path string) (image.Image, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The converter never works above 1600 px, so keep a reduced copy
+	// instead of the full picture (a 6000×4000 photo is ~100 MB decoded).
+	img = shrink(img, 2000)
 	a.imgCache.path, a.imgCache.img = path, img
 	return img, nil
+}
+
+// shrink returns img scaled so its longest side is at most maxSide.
+func shrink(img image.Image, maxSide int) image.Image {
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= maxSide && h <= maxSide {
+		return img
+	}
+	k := float64(maxSide) / float64(max(w, h))
+	dst := image.NewNRGBA(image.Rect(0, 0, max(int(float64(w)*k), 1), max(int(float64(h)*k), 1)))
+	xdraw.CatmullRom.Scale(dst, dst.Bounds(), img, b, xdraw.Src, nil)
+	return dst
+}
+
+// ReleaseMemory returns freed memory to Windows after something that used a
+// lot temporarily (the font gallery, the picture dialog).
+func (a *App) ReleaseMemory() { debug.FreeOSMemory() }
+
+// ImageClose frees the picture held for the conversion dialog.
+func (a *App) ImageClose() {
+	a.imgCache.mu.Lock()
+	a.imgCache.path, a.imgCache.img = "", nil
+	a.imgCache.mu.Unlock()
+	debug.FreeOSMemory()
 }
 
 func (s ImageSpec) options() autodigitize.Options {

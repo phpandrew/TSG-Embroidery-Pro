@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -199,6 +200,12 @@ func openFromArgs(a *app.App, ui *wailsUI, path string) {
 }
 
 func main() {
+	// Keep the Go heap compact: collect a little more often than the default
+	// and work harder to stay under a soft ceiling. Editing DST files needs
+	// far less than this; the limit only matters during font browsing or
+	// picture conversion, and is not a hard cap.
+	debug.SetGCPercent(60)
+	debug.SetMemoryLimit(384 << 20)
 	// headless administrator step of an update (see app.ElevatedUpdate)
 	if len(os.Args) == 3 && os.Args[1] == updater.ElevatedUpdateFlag {
 		os.Exit(app.ElevatedUpdate(os.Args[2]))

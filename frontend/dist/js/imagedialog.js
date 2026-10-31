@@ -91,9 +91,10 @@ export async function openImageDialog(path) {
       refresh();
     },
   }).then(async choice => {
-    if (!choice || imported) return;
+    if (!choice || imported) { api.ImageClose().catch(() => {}); return; }
     imported = true;
     const r = await run(() => api.ImportImage(spec, choice === 'new'));
+    api.ImageClose().catch(() => {});
     if (r) { R.fit(S.view.hoop); updateZoomLabel(); redraw(); if (r.warning) toast(r.warning, 'warn'); }
   });
 }

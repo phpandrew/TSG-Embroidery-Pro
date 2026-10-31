@@ -96,6 +96,59 @@ type Font interface {
 type Registry struct {
 	mu    sync.RWMutex
 	fonts map[string]Font
+
+	// recently used fonts that hold loaded glyph data, oldest first
+	lruMu sync.Mutex
+	lru   []unloader
+}
+
+// unloader is a font whose glyph data can be dropped and reloaded later.
+type unloader interface{ unload() }
+
+// How many fonts of each kind keep their glyph data loaded. Browsing the
+// gallery touches every font; without a cap all of them stay in memory.
+const (
+	maxLoadedPacked = 8
+	maxLoadedSystem = 4
+)
+
+// touch marks f as just used and unloads the least recently used fonts of
+// the same kind beyond the cap. It must be called without holding f's locks.
+func (r *Registry) touch(f unloader) {
+	_, isSys := f.(*sysFont)
+	r.lruMu.Lock()
+	for i, x := range r.lru {
+		if x == f {
+			r.lru = append(r.lru[:i], r.lru[i+1:]...)
+			break
+		}
+	}
+	r.lru = append(r.lru, f)
+	limit := maxLoadedPacked
+	if isSys {
+		limit = maxLoadedSystem
+	}
+	same := 0
+	for _, x := range r.lru {
+		if _, s := x.(*sysFont); s == isSys {
+			same++
+		}
+	}
+	var victims []unloader
+	for i := 0; i < len(r.lru) && same > limit; {
+		x := r.lru[i]
+		if _, s := x.(*sysFont); s == isSys && x != f {
+			victims = append(victims, x)
+			r.lru = append(r.lru[:i], r.lru[i+1:]...)
+			same--
+			continue
+		}
+		i++
+	}
+	r.lruMu.Unlock()
+	for _, v := range victims {
+		v.unload()
+	}
 }
 
 func NewRegistry() *Registry {
@@ -133,6 +186,9 @@ func (r *Registry) LoadFS(fsys fs.FS) []error {
 		raw, rerr := fs.ReadFile(fsys, path.Join(e.Name(), "font.json"))
 		if rerr == nil && bytes.Contains(raw, []byte(`"`+PackedFormat+`"`)) {
 			f, err = loadPackedFont(fsys, e.Name(), raw)
+			if pf, ok := f.(*packedFont); ok {
+				pf.reg = r
+			}
 		} else {
 			f, err = LoadGlyphFontFS(fsys, e.Name())
 		}

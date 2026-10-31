@@ -4,7 +4,13 @@ import { api } from './api.js';
 import { icon } from './icons.js';
 import { esc, modal } from './ui.js';
 
-const cache = new Map(); // `${font}\u0000${text}` -> data URL
+const cache = new Map(); // `${font}\u0000${text}` -> data URL (most recent last)
+const CACHE_MAX = 250;     // ~25 KB each: keeps the gallery snappy without hoarding memory
+function remember(key, url) {
+  cache.delete(key);
+  cache.set(key, url);
+  while (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value);
+}
 let favourites = null;
 
 export async function loadFavourites() {
@@ -67,7 +73,7 @@ export async function openFontGallery({ text = '', current = '' } = {}) {
             running++;
             const w = Math.round(card.querySelector('.fg-img').clientWidth * (window.devicePixelRatio || 1));
             api.FontPreview(name, previewText, w || 560, Math.round((w || 560) * 0.32))
-              .then(url => { cache.set(key, url); show(card, url); })
+              .then(url => { remember(key, url); show(card, url); })
               .catch(() => { card.querySelector('.fg-img').textContent = 'Preview unavailable'; })
               .finally(() => { running--; pump(); });
           }
@@ -142,6 +148,6 @@ export async function openFontGallery({ text = '', current = '' } = {}) {
         render();
         setTimeout(() => back.querySelector('#fg-q').focus(), 0);
       },
-    }).then(() => resolve(picked));
+    }).then(() => { api.ReleaseMemory().catch(() => {}); resolve(picked); });
   });
 }
