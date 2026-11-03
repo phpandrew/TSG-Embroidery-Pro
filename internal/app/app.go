@@ -57,6 +57,8 @@ type Prefs struct {
 	// (default: the Downloads folder).
 	WatchEnabled bool   `json:"watchEnabled"`
 	WatchDir     string `json:"watchDir"`
+	// BrowseDir is the folder the design browser shows ("" = Downloads).
+	BrowseDir string `json:"browseDir"`
 	// Recent is the recently opened files, newest first.
 	Recent []string `json:"recent"`
 	// QuickSends are the one-click export targets (one per machine).
@@ -83,6 +85,7 @@ type App struct {
 	watch    *watcher
 	watchMu  sync.Mutex
 	imgCache imageCache
+	thumbs   thumbCache
 	// auto-backup
 	session  string
 	backupMu sync.Mutex

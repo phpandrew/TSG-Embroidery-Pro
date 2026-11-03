@@ -302,6 +302,25 @@ func readOther(r io.Reader, ext string, trimJumps int) ([][]pattern.St, error) {
 	return blocks, nil
 }
 
+// ReadDesignFile reads any supported stitch file into colour blocks
+// (used by the design browser for previews).
+func ReadDesignFile(path string, trimJumps int) ([][]pattern.St, error) {
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext != ".dst" && !formats.Supported(ext) {
+		return nil, fmt.Errorf("unsupported file type %q", ext)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	if ext == ".dst" {
+		b, _, err := ReadDST(f, trimJumps)
+		return b, err
+	}
+	return readOther(f, ext, trimJumps)
+}
+
 // ImportFile adds a stitch file to the document (merge).
 func (e *Editor) ImportFile(path string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(path))

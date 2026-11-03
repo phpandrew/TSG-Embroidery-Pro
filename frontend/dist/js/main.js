@@ -8,6 +8,7 @@ import { openColorBlockPrint } from './print.js';
 import { openFontGallery, fontOptions, loadFavourites } from './fontgallery.js';
 import { openSettings } from './settings.js';
 import { openImageDialog } from './imagedialog.js';
+import { openDesignBrowser } from './designbrowser.js';
 
 // ---------------------------------------------------------------- state
 export const S = {
@@ -692,6 +693,7 @@ export const actions = {
   checkUpdates: () => checkUpdates(true),
   logs: () => api.OpenLogFolder().catch(e => toast(e.message, 'err')),
   settings: () => openSettings(),
+  browse: () => openDesignBrowser(),
   openImage: () => api.OpenImage().then(p => { if (p) openImageDialog(p); }).catch(e => toast(e.message || String(e), 'err')),
   recent: () => { const b = $('#recentBtn').getBoundingClientRect(); recentMenu(b.left, b.bottom + 4); },
   github: () => api.OpenRepoPage(),
@@ -765,7 +767,7 @@ document.addEventListener('keydown', e => {
   if (typing) return;
   const ctrl = e.ctrlKey || e.metaKey;
   if (!isDesktop && ctrl) { // the desktop app handles these through native menu accelerators
-    const map = { ',': 'settings', w: 'closeTab', n: 'new', o: 'open', m: 'merge', s: e.shiftKey ? 'saveAs' : 'save', e: 'export', p: e.shiftKey ? 'printBlocks' : 'worksheet', z: 'undo', y: 'redo', d: 'duplicate', r: 'rotate', t: 'lettering', j: 'toggleJumps', g: 'grid', '0': 'fit', '=': 'zoomIn', '-': 'zoomOut' };
+    const map = { b: 'browse', ',': 'settings', w: 'closeTab', n: 'new', o: 'open', m: 'merge', s: e.shiftKey ? 'saveAs' : 'save', e: 'export', p: e.shiftKey ? 'printBlocks' : 'worksheet', z: 'undo', y: 'redo', d: 'duplicate', r: 'rotate', t: 'lettering', j: 'toggleJumps', g: 'grid', '0': 'fit', '=': 'zoomIn', '-': 'zoomOut' };
     const a = map[e.key.toLowerCase()];
     if (a) { e.preventDefault(); actions[a](); return; }
   }
@@ -782,7 +784,7 @@ document.addEventListener('keyup', e => { if (e.code === 'Space') spaceDown = fa
 
 // ---------------------------------------------------------------- dev-mode menu
 const MENUS = [
-  ['File', [['New', 'new', 'Ctrl+N'], ['Close tab', 'closeTab', 'Ctrl+W'], ['Open…', 'open', 'Ctrl+O'], ['Open picture to digitize…', 'openImage'], ['Open recent…', 'recent'], ['Merge…', 'merge', 'Ctrl+M'], '-', ['Save project', 'save', 'Ctrl+S'], ['Save project as…', 'saveAs', 'Ctrl+Shift+S'], ['Export DST…', 'export', 'Ctrl+E'], '-', ['Production worksheet…', 'worksheet', 'Ctrl+P'], ['Print colour block analysis…', 'printBlocks', 'Ctrl+Shift+P']]],
+  ['File', [['New', 'new', 'Ctrl+N'], ['Close tab', 'closeTab', 'Ctrl+W'], ['Open…', 'open', 'Ctrl+O'], ['Browse designs…', 'browse', 'Ctrl+B'], ['Open picture to digitize…', 'openImage'], ['Open recent…', 'recent'], ['Merge…', 'merge', 'Ctrl+M'], '-', ['Save project', 'save', 'Ctrl+S'], ['Save project as…', 'saveAs', 'Ctrl+Shift+S'], ['Export DST…', 'export', 'Ctrl+E'], '-', ['Production worksheet…', 'worksheet', 'Ctrl+P'], ['Print colour block analysis…', 'printBlocks', 'Ctrl+Shift+P']]],
   ['Edit', [['Undo', 'undo', 'Ctrl+Z'], ['Redo', 'redo', 'Ctrl+Y'], '-', ['Duplicate', 'duplicate', 'Ctrl+D'], ['Delete', 'delete', 'Del']]],
   ['View', [['Zoom in', 'zoomIn', 'Ctrl+='], ['Zoom out', 'zoomOut', 'Ctrl+-'], ['Fit to hoop', 'fit', 'Ctrl+0'], ['Toggle jumps', 'toggleJumps', 'Ctrl+J'], '-', ['Sequence grid', 'grid', 'Ctrl+G']]],
   ['Design', [['Rotate 90°', 'rotate', 'Ctrl+R'], ['Mirror horizontal', 'mirror'], ['Mirror vertical', 'mirrorV'], ['Center selection', 'center'], ['Center all in hoop', 'centerAll'], '-', ['Add lettering', 'lettering', 'Ctrl+T']]],

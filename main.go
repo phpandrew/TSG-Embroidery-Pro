@@ -122,6 +122,7 @@ func buildMenu(emit func(string)) *menu.Menu {
 	file := m.AddSubmenu("File")
 	item(file, "New", keys.CmdOrCtrl("n"), "new")
 	item(file, "Open…", keys.CmdOrCtrl("o"), "open")
+	item(file, "Browse designs…", keys.CmdOrCtrl("b"), "browse")
 	item(file, "Open picture to digitize…", nil, "openImage")
 	item(file, "Open recent…", nil, "recent")
 	item(file, "Close tab", keys.CmdOrCtrl("w"), "closeTab")
