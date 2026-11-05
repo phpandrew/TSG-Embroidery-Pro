@@ -39,10 +39,11 @@ type orderSecrets struct {
 // never sent back to the window, only whether they are set.
 type OrderSettings struct {
 	OrderPrefs
-	HasAPIKey bool `json:"hasApiKey"`
-	HasAppKey bool `json:"hasAppKey"`
-	HasAppID  bool `json:"hasAppId"`
-	Ready     bool `json:"ready"` // enabled and complete: show the toolbar button
+	HasAPIKey bool   `json:"hasApiKey"`
+	HasAppKey bool   `json:"hasAppKey"`
+	HasAppID  bool   `json:"hasAppId"`
+	Ready     bool   `json:"ready"` // enabled and complete: show the toolbar button
+	Missing   string `json:"missing,omitempty"`
 }
 
 // OrderSettingsUpdate is what the Settings tab saves. Empty key fields
@@ -117,13 +118,35 @@ func (a *App) GetOrderSettings() OrderSettings {
 	p := a.orderPrefs()
 	s := a.loadSecrets()
 	out := OrderSettings{OrderPrefs: p, HasAPIKey: s.APIKey != "", HasAppKey: s.AppKey != "", HasAppID: s.AppID != ""}
-	out.Ready = p.Enabled && p.BaseURL != "" && out.HasAPIKey
+	out.Ready = p.Enabled && p.BaseURL != "" && out.HasAPIKey && out.HasAppKey && out.HasAppID
+	if p.Enabled {
+		var miss []string
+		if p.BaseURL == "" {
+			miss = append(miss, "API address")
+		}
+		if !out.HasAPIKey {
+			miss = append(miss, "API key")
+		}
+		if !out.HasAppKey {
+			miss = append(miss, "Application key")
+		}
+		if !out.HasAppID {
+			miss = append(miss, "App ID")
+		}
+		if len(miss) > 0 {
+			out.Missing = "Still needs: " + strings.Join(miss, ", ")
+		}
+	}
 	return out
 }
 
 // SetOrderSettings saves the connection.
 func (a *App) SetOrderSettings(u OrderSettingsUpdate) (OrderSettings, error) {
-	u.BaseURL = strings.TrimSpace(u.BaseURL)
+	if strings.TrimSpace(u.BaseURL) != "" {
+		u.BaseURL = orders.NormalizeBase(u.BaseURL)
+	} else {
+		u.BaseURL = ""
+	}
 	u.Machine = strings.TrimSpace(u.Machine)
 	u.EmployeeID = strings.TrimSpace(u.EmployeeID)
 	if u.BaseURL != "" {
@@ -171,7 +194,8 @@ func (a *App) orderClient() (*orders.Client, error) {
 type OrderInfo struct {
 	Order    *orders.Order    `json:"order"`
 	Products *orders.Products `json:"products"`
-	Marked   bool             `json:"marked"` // lookup marked the order printed
+	Marked   bool             `json:"marked"`            // lookup marked the order printed
+	Warning  string           `json:"warning,omitempty"` // the order was found but its files could not be listed
 }
 
 // LookupOrder finds the order and its embroidery files.
@@ -190,7 +214,9 @@ func (a *App) LookupOrder(number string) (OrderInfo, error) {
 	}
 	p, err := c.Products(ctx, o.Number, o.ProductID)
 	if err != nil {
-		return OrderInfo{Order: o}, err
+		applog.Infof("order %s files: %v", number, err)
+		return OrderInfo{Order: o, Products: &orders.Products{}, Marked: a.orderPrefs().MarkPrinted,
+			Warning: "The order was found, but its DST files couldn't be fetched: " + err.Error()}, nil
 	}
 	// second side of a double-sided product
 	if o.ProductBack != "" && o.ProductBack != o.ProductID {

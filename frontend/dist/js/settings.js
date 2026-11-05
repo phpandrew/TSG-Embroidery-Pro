@@ -112,7 +112,7 @@ export async function openSettings(tab) {
           <p class="hint">Look up an order by number and open its DST files with the shop's thread colours. Fill in the connection details you were given; nothing here is built into the program.</p>
           <label class="check"><input type="checkbox" id="ord-on" ${o.enabled ? 'checked' : ''}> Show the <b>Order</b> button on the toolbar</label>
           <div class="form ord-form">
-            <label class="f">API address<input class="inp" id="ord-url" placeholder="https://…/api/v2/" value="${esc(o.baseUrl || '')}" autocomplete="off" spellcheck="false"></label>
+            <label class="f">API address<input class="inp" id="ord-url" placeholder="https://…/api/v2/  (the folder, not LookupOrder/)" value="${esc(o.baseUrl || '')}" autocomplete="off" spellcheck="false"></label>
             ${keyField('ord-key', 'API key', o.hasApiKey)}
             <div class="two">${keyField('ord-appkey', 'Application key', o.hasAppKey)}${keyField('ord-appid', 'App ID', o.hasAppId)}</div>
             <div class="two">
@@ -122,7 +122,7 @@ export async function openSettings(tab) {
             <label class="check"><input type="checkbox" id="ord-mark" ${o.markPrinted ? 'checked' : ''}> Mark the order as printed when it's looked up</label>
             <div class="set-row"><button class="btn btn-primary btn-sm" id="ord-save">Save</button>
               ${o.hasApiKey || o.hasAppKey || o.hasAppId ? '<button class="btn btn-ghost btn-sm" id="ord-clear">Remove saved keys</button>' : ''}
-              <span class="muted" id="ord-state">${o.ready ? 'Connected settings saved' : o.enabled ? 'Needs the address and API key' : ''}</span></div>
+              <span class="muted" id="ord-state">${o.ready ? 'Connected settings saved' : esc(o.missing || '')}</span></div>
             <p class="hint">Keys are stored encrypted for your Windows account only and are never shown again.</p>
           </div>`;
         const g = s => sec.querySelector(s);

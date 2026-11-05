@@ -48,6 +48,7 @@ export async function openOrderDialog() {
               <div class="muted">${[p.store, p.title].filter(Boolean).map(esc).join(' · ')}</div></div>
             <div class="od-garment">${[o.style, o.color, o.size].filter(Boolean).map(esc).join(' · ')}${o.qty ? ` · <b>Qty ${esc(o.qty)}</b>` : ''}</div>
           </div>
+          ${info.warning ? `<div class="od-msg bad">${esc(info.warning)}</div>` : ''}
           ${o.adminMessage ? `<div class="od-msg">${esc(o.adminMessage)}</div>` : ''}
           ${p.noDst ? `<div class="od-msg">${esc(p.dstNote || 'Nothing on this product is embroidered.')}</div>` : ''}
           ${files.map((f, i) => `<div class="od-file${f.missing ? ' missing' : ''}">
@@ -55,7 +56,7 @@ export async function openOrderDialog() {
                 <span class="muted">${f.missing ? 'No DST attached yet' : esc(f.filename || 'design.dst')}</span>
                 ${f.missing ? '' : `<button class="btn btn-outline btn-sm" data-open="${i}">Open</button>`}</div>
               ${f.missing ? '' : threadRows(f.threads)}
-            </div>`).join('') || (p.noDst ? '' : '<p class="hint">No embroidered positions on this order.</p>')}
+            </div>`).join('') || (p.noDst || info.warning ? '' : '<p class="hint">No embroidered positions on this order.</p>')}
           ${openable.length > 1 ? `<div class="od-all"><button class="btn btn-primary" id="od-all">Open all ${openable.length}</button></div>` : ''}`;
         out.querySelectorAll('[data-open]').forEach(b => b.onclick = () => { toOpen = [files[+b.dataset.open]]; back.querySelector('[data-x]').click(); });
         const all = q('#od-all');

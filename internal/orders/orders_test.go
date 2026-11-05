@@ -107,3 +107,17 @@ func TestFailuresAndValidation(t *testing.T) {
 		t.Fatal("plain http downloads must be refused")
 	}
 }
+
+func TestNormalizeBase(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://a.example.com/api/v2/LookupOrder/index.php": "https://a.example.com/api/v2/",
+		"https://a.example.com/api/v2/LookupOrder/":          "https://a.example.com/api/v2/",
+		"https://a.example.com/api/v2/getsellerproducts":     "https://a.example.com/api/v2/",
+		"https://a.example.com/api/v2":                       "https://a.example.com/api/v2/",
+		" https://a.example.com/api/v2/?x=1 ":                "https://a.example.com/api/v2/",
+	} {
+		if got := NormalizeBase(in); got != want {
+			t.Errorf("%q: got %q want %q", in, got, want)
+		}
+	}
+}

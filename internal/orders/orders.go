@@ -95,9 +95,35 @@ type Client struct {
 	http *http.Client
 }
 
+// NormalizeBase turns whatever was pasted into the API folder address:
+// a full endpoint link such as …/api/v2/LookupOrder/index.php becomes
+// …/api/v2/.
+func NormalizeBase(raw string) string {
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return raw
+	}
+	u.RawQuery, u.Fragment = "", ""
+	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
+	for len(parts) > 0 {
+		last := strings.ToLower(parts[len(parts)-1])
+		if last == "" || last == "index.php" || last == "lookuporder" || last == "getsellerproducts" {
+			parts = parts[:len(parts)-1]
+			continue
+		}
+		break
+	}
+	u.Path = "/" + strings.Join(parts, "/")
+	if !strings.HasSuffix(u.Path, "/") {
+		u.Path += "/"
+	}
+	return u.String()
+}
+
 // New checks the config and returns a client.
 func New(cfg Config) (*Client, error) {
-	u, err := url.Parse(strings.TrimSpace(cfg.BaseURL))
+	u, err := url.Parse(NormalizeBase(cfg.BaseURL))
 	if err != nil || u.Host == "" {
 		return nil, errors.New("set the API address in Settings → Order lookup")
 	}
