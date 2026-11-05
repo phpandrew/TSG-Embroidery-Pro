@@ -1,7 +1,7 @@
 import { api, on, isDesktop } from './api.js';
 import { Renderer, drawThumb, luminance, RULER } from './render.js';
 import { icon } from './icons.js';
-import { $, $$, esc, fmt, mm, toast, modal, prompt, contextMenu, numField, hydrateIcons } from './ui.js';
+import { $, $$, esc, fmt, mm, toast, modal, prompt, contextMenu, numField, hydrateIcons, threadLabel } from './ui.js';
 import { renderProps } from './panels.js';
 import { openWorksheet, openSequenceGrid } from './worksheet.js';
 import { openColorBlockPrint } from './print.js';
@@ -9,6 +9,7 @@ import { openFontGallery, fontOptions, loadFavourites } from './fontgallery.js';
 import { openSettings } from './settings.js';
 import { openImageDialog } from './imagedialog.js';
 import { openDesignBrowser } from './designbrowser.js';
+import { openOrderDialog } from './orderdialog.js';
 
 // ---------------------------------------------------------------- state
 export const S = {
@@ -105,6 +106,15 @@ async function recentMenu(x, y) {
     '-',
     { label: 'Clear recent files', action: () => api.ClearRecent().then(() => renderRecentEmpty()) },
   ]);
+}
+
+// ---------------------------------------------------------------- order lookup
+export async function renderOrderButton() {
+  const b = $('#orderBtn');
+  if (!b) return;
+  let ready = false;
+  try { ready = (await api.GetOrderSettings()).ready; } catch { /* ignore */ }
+  b.hidden = !ready;
 }
 
 // ---------------------------------------------------------------- quick send
@@ -234,7 +244,7 @@ function renderSeq() {
       br.title = 'Click to show this block on the canvas';
       br.draggable = true;
       br.innerHTML = `<span class="grip">${icon('grip', 18)}</span><span class="sw" style="background:${esc(t.color)}"></span>
-        <span><span class="bnum">${b.index}</span> ${esc(t.name)} • ${fmt(b.stitches)}${blockTime(d.id, bi)}</span>`;
+        <span><span class="bnum">${b.index}</span> ${esc(threadLabel(t))}${t.note ? ` <span class="th-note">${esc(t.note)}</span>` : ''} • ${fmt(b.stitches)}${blockTime(d.id, bi)}</span>`;
       br.onclick = () => (isSel ? select(d.id) : selectBlock(d.id, bi));
       br.oncontextmenu = e => { e.preventDefault(); selectBlock(d.id, bi); blockMenu(d, bi, e.clientX, e.clientY); };
       dnd(br, { kind: 'block', id: d.id, index: bi });
@@ -306,7 +316,7 @@ function blockMenu(d, bi, x, y) {
     { label: 'Sew earlier', action: () => bi > 0 && run(() => api.MoveBlock(d.id, bi, bi - 1)) },
     { label: 'Sew later', action: () => bi < d.blocks.length - 1 && run(() => api.MoveBlock(d.id, bi, bi + 1)) },
     '-',
-    ...threads.map(t => ({ label: `Thread: ${t.name} (needle ${t.needle})`, action: () => run(() => api.SetBlockThread(d.id, bi, t.id)) })),
+    ...threads.map(t => ({ label: `Thread: ${threadLabel(t)} (needle ${t.needle})`, action: () => run(() => api.SetBlockThread(d.id, bi, t.id)) })),
   ]);
 }
 
@@ -330,7 +340,7 @@ export function selectBlock(id, index) {
   renderChrome();
   redraw();
   const ob = R.order.find(o => o.item.id === id && o.block.bi === index);
-  if (ob) setStatus(`Block ${ob.block.index}: ${ob.block.thread.name} — ${fmt(ob.block.count)} stitches`);
+  if (ob) setStatus(`Block ${ob.block.index}: ${threadLabel(ob.block.thread)}${ob.block.thread.note ? ' (' + ob.block.thread.note + ')' : ''} — ${fmt(ob.block.count)} stitches`);
 }
 
 // Up/down move the selected block within its design, or the selected design.
@@ -694,6 +704,7 @@ export const actions = {
   logs: () => api.OpenLogFolder().catch(e => toast(e.message, 'err')),
   settings: () => openSettings(),
   browse: () => openDesignBrowser(),
+  order: () => openOrderDialog(),
   openImage: () => api.OpenImage().then(p => { if (p) openImageDialog(p); }).catch(e => toast(e.message || String(e), 'err')),
   recent: () => { const b = $('#recentBtn').getBoundingClientRect(); recentMenu(b.left, b.bottom + 4); },
   github: () => api.OpenRepoPage(),
@@ -767,7 +778,7 @@ document.addEventListener('keydown', e => {
   if (typing) return;
   const ctrl = e.ctrlKey || e.metaKey;
   if (!isDesktop && ctrl) { // the desktop app handles these through native menu accelerators
-    const map = { b: 'browse', ',': 'settings', w: 'closeTab', n: 'new', o: 'open', m: 'merge', s: e.shiftKey ? 'saveAs' : 'save', e: 'export', p: e.shiftKey ? 'printBlocks' : 'worksheet', z: 'undo', y: 'redo', d: 'duplicate', r: 'rotate', t: 'lettering', j: 'toggleJumps', g: 'grid', '0': 'fit', '=': 'zoomIn', '-': 'zoomOut' };
+    const map = { l: 'order', b: 'browse', ',': 'settings', w: 'closeTab', n: 'new', o: 'open', m: 'merge', s: e.shiftKey ? 'saveAs' : 'save', e: 'export', p: e.shiftKey ? 'printBlocks' : 'worksheet', z: 'undo', y: 'redo', d: 'duplicate', r: 'rotate', t: 'lettering', j: 'toggleJumps', g: 'grid', '0': 'fit', '=': 'zoomIn', '-': 'zoomOut' };
     const a = map[e.key.toLowerCase()];
     if (a) { e.preventDefault(); actions[a](); return; }
   }
@@ -784,7 +795,7 @@ document.addEventListener('keyup', e => { if (e.code === 'Space') spaceDown = fa
 
 // ---------------------------------------------------------------- dev-mode menu
 const MENUS = [
-  ['File', [['New', 'new', 'Ctrl+N'], ['Close tab', 'closeTab', 'Ctrl+W'], ['Open…', 'open', 'Ctrl+O'], ['Browse designs…', 'browse', 'Ctrl+B'], ['Open picture to digitize…', 'openImage'], ['Open recent…', 'recent'], ['Merge…', 'merge', 'Ctrl+M'], '-', ['Save project', 'save', 'Ctrl+S'], ['Save project as…', 'saveAs', 'Ctrl+Shift+S'], ['Export DST…', 'export', 'Ctrl+E'], '-', ['Production worksheet…', 'worksheet', 'Ctrl+P'], ['Print colour block analysis…', 'printBlocks', 'Ctrl+Shift+P']]],
+  ['File', [['New', 'new', 'Ctrl+N'], ['Close tab', 'closeTab', 'Ctrl+W'], ['Open…', 'open', 'Ctrl+O'], ['Browse designs…', 'browse', 'Ctrl+B'], ['Order lookup…', 'order', 'Ctrl+L'], ['Open picture to digitize…', 'openImage'], ['Open recent…', 'recent'], ['Merge…', 'merge', 'Ctrl+M'], '-', ['Save project', 'save', 'Ctrl+S'], ['Save project as…', 'saveAs', 'Ctrl+Shift+S'], ['Export DST…', 'export', 'Ctrl+E'], '-', ['Production worksheet…', 'worksheet', 'Ctrl+P'], ['Print colour block analysis…', 'printBlocks', 'Ctrl+Shift+P']]],
   ['Edit', [['Undo', 'undo', 'Ctrl+Z'], ['Redo', 'redo', 'Ctrl+Y'], '-', ['Duplicate', 'duplicate', 'Ctrl+D'], ['Delete', 'delete', 'Del']]],
   ['View', [['Zoom in', 'zoomIn', 'Ctrl+='], ['Zoom out', 'zoomOut', 'Ctrl+-'], ['Fit to hoop', 'fit', 'Ctrl+0'], ['Toggle jumps', 'toggleJumps', 'Ctrl+J'], '-', ['Sequence grid', 'grid', 'Ctrl+G']]],
   ['Design', [['Rotate 90°', 'rotate', 'Ctrl+R'], ['Mirror horizontal', 'mirror'], ['Mirror vertical', 'mirrorV'], ['Center selection', 'center'], ['Center all in hoop', 'centerAll'], '-', ['Add lettering', 'lettering', 'Ctrl+T']]],
@@ -858,6 +869,7 @@ hydrateIcons();
     updateZoomLabel();
     setStatus('Ready');
     renderQuickSends();
+    renderOrderButton();
     setInterval(renderQuickSends, 5000); // stick plugged in / pulled out
   } catch (e) {
     toast('Failed to start: ' + e.message, 'err');

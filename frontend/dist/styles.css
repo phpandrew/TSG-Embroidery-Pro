@@ -476,3 +476,27 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; border: 1px
 .db-merge { flex: none; height: 28px; padding: 0 10px; opacity: 0; transition: opacity .1s; }
 .db-card:hover .db-merge, .db-card:focus-within .db-merge { opacity: 1; }
 .db-more { grid-column: 1 / -1; display: flex; justify-content: center; padding: 6px 0 4px; }
+
+.th-note { display: inline-block; font-size: 11px; font-weight: 600; color: #8a4b00; background: #fff3dc; border: 1px solid #f1d39a; border-radius: 4px; padding: 0 5px; margin-left: 4px; }
+.cba-note { color: #8a4b00; }
+
+/* order lookup */
+.od-modal { width: min(820px, calc(100vw - 32px)); }
+.od-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; }
+.od-num { width: 220px; height: 40px; font-size: 18px; font-weight: 600; letter-spacing: .03em; border: 1px solid #d5d9df; border-radius: 6px; padding: 0 10px; }
+.od-out { max-height: 62vh; overflow-y: auto; }
+.od-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; padding: 10px 12px; background: #f6f7f9; border-radius: 8px; margin-bottom: 10px; font-size: 14.5px; }
+.od-status { display: inline-block; font-size: 12px; padding: 1px 7px; border-radius: 10px; background: #e7effd; color: var(--blue); margin-left: 6px; }
+.od-garment { text-align: right; }
+.od-msg { padding: 8px 12px; border-radius: 6px; background: #fff7e6; border: 1px solid #f1d39a; margin-bottom: 10px; font-size: 14px; }
+.od-msg.bad { background: #fdecec; border-color: #f3b4b4; color: #9b1c1c; }
+.od-file { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.od-file.missing { opacity: .7; }
+.od-file-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.od-file-head .muted { flex: 1; font-size: 13px; }
+.od-threads td { padding: 3px 8px 3px 0; font-size: 13.5px; }
+.od-seq { color: #6b7280; width: 22px; }
+.od-notset { background: repeating-linear-gradient(45deg, #ddd 0 3px, #fff 3px 6px) !important; }
+.od-all { display: flex; justify-content: flex-end; }
+.ord-form { margin-top: 6px; }
+.ord-form .inp { height: 34px; }

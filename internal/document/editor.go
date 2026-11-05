@@ -302,6 +302,109 @@ func readOther(r io.Reader, ext string, trimJumps int) ([][]pattern.St, error) {
 	return blocks, nil
 }
 
+// OrderThread is the shop's thread for one colour block (Sequence 1 = the
+// first block).
+type OrderThread struct {
+	Sequence int
+	Code     string
+	Name     string
+	Color    string // #rrggbb, display only
+	Brand    string
+	Note     string
+	NotSet   bool // saved without a thread
+}
+
+// ApplyOrderThreads names the document and gives each block of its first
+// design the shop's thread. With no threads the program's own colours stay.
+// The document stays unmodified (it is as downloaded).
+func (e *Editor) ApplyOrderThreads(name string, threads []OrderThread) error {
+	err := e.mutate(func(d *Doc) error {
+		if name != "" {
+			d.Name = name
+		}
+		if len(d.Designs) == 0 || len(threads) == 0 {
+			return nil
+		}
+		bySeq := map[int]OrderThread{}
+		for _, t := range threads {
+			bySeq[t.Sequence] = t
+		}
+		ds := d.Designs[0]
+		for i := range ds.Blocks {
+			t, ok := bySeq[i+1]
+			if !ok {
+				continue
+			}
+			ds.Blocks[i].Thread = d.orderThread(t, i)
+		}
+		// palette = the threads this order uses, needles 1, 2, 3… in the order
+		// they are first sewn (the same thread keeps the same needle)
+		var keep []Thread
+		seen := map[string]bool{}
+		for _, b := range ds.Blocks {
+			if seen[b.Thread] {
+				continue
+			}
+			for _, th := range d.Threads {
+				if th.ID == b.Thread {
+					seen[th.ID] = true
+					th.Needle = len(keep)%max(d.Settings.Needles, 1) + 1
+					keep = append(keep, th)
+				}
+			}
+		}
+		if len(keep) > 0 {
+			d.Threads = keep
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	e.mu.Lock()
+	e.undo, e.redo, e.dirty = nil, nil, false
+	e.mu.Unlock()
+	return nil
+}
+
+// orderThread finds or adds the palette thread for an order thread.
+func (d *Doc) orderThread(t OrderThread, block int) string {
+	if t.NotSet {
+		th := Thread{ID: d.newID("t"), Name: fmt.Sprintf("Not set (block %d)", block+1), Color: "#9aa0a6", Note: "thread not set in the shop"}
+		th.Needle = len(d.Threads)%max(d.Settings.Needles, 1) + 1
+		d.Threads = append(d.Threads, th)
+		return th.ID
+	}
+	col := strings.ToLower(t.Color)
+	if !validColor(col) {
+		col = "#888888"
+	}
+	for _, th := range d.Threads {
+		if t.Code != "" && th.Code == t.Code && th.Brand == t.Brand && th.Note == t.Note {
+			return th.ID
+		}
+	}
+	name := t.Name
+	if name == "" {
+		name = t.Code
+	}
+	th := Thread{ID: d.newID("t"), Name: name, Code: t.Code, Brand: t.Brand, Color: col, Note: t.Note}
+	used := map[int]bool{}
+	for _, x := range d.Threads {
+		used[x.Needle] = true
+	}
+	n := max(d.Settings.Needles, 1)
+	th.Needle = len(d.Threads)%n + 1
+	for k := 1; k <= n; k++ { // prefer a needle not used yet
+		if !used[k] {
+			th.Needle = k
+			break
+		}
+	}
+	d.Threads = append(d.Threads, th)
+	return th.ID
+}
+
 // ReadDesignFile reads any supported stitch file into colour blocks
 // (used by the design browser for previews).
 func ReadDesignFile(path string, trimJumps int) ([][]pattern.St, error) {

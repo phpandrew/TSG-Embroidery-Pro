@@ -20,6 +20,7 @@ type Thread struct {
 	Code   string `json:"code"`
 	Color  string `json:"color"` // #rrggbb
 	Needle int    `json:"needle"`
+	Note   string `json:"note,omitempty"` // e.g. "3D foam", "applique"
 }
 
 // Block is one colour block of a design. Stitch slices are treated as

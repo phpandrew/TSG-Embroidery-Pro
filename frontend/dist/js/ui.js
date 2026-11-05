@@ -4,6 +4,17 @@ import { icon } from './icons.js';
 export const $ = (sel, root = document) => root.querySelector(sel);
 export const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
+// threadLabel: "5596 Black" when the thread has a code, else its name.
+export function threadLabel(t) {
+  if (!t) return '?';
+  const code = t.code ? String(t.code).trim() : '';
+  const name = String(t.name || t.thread || '').trim();
+  return code && !name.startsWith(code) ? `${code} ${name}`.trim() : name;
+}
+
+// threadNote: optional instruction for the operator ("3D foam", "applique").
+export function threadNote(t) { return t && t.note ? String(t.note) : ''; }
+
 export function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }

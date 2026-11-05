@@ -272,3 +272,41 @@ func TestImportOtherFormats(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyOrderThreads(t *testing.T) {
+	e := NewEditor(nil)
+	if err := e.OpenFile(filepath.Join("..", "..", "samples", "Team crest.dst")); err != nil {
+		t.Fatal(err)
+	}
+	err := e.ApplyOrderThreads("10099566 · Front", []OrderThread{
+		{Sequence: 1, Code: "5596", Name: "Black", Color: "#000000", Brand: "RA"},
+		{Sequence: 2, NotSet: true},
+		{Sequence: 3, Code: "5520", Name: "Blue", Color: "#003470", Brand: "RA", Note: "3D foam"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := e.State()
+	if e.Dirty() || len(v.Tabs) > 0 {
+		t.Fatal("applying shop colours should leave the download unmodified")
+	}
+	if e.Title() != "10099566 · Front" {
+		t.Fatalf("title %q", e.Title())
+	}
+	if len(v.Sequence) != 3 || v.Sequence[0].Code != "5596" || v.Sequence[0].Needle != 1 ||
+		v.Sequence[1].Thread != "Not set (block 2)" || v.Sequence[2].Note != "3D foam" || v.Sequence[2].Needle != 3 {
+		t.Fatalf("sequence = %+v", v.Sequence)
+	}
+	if len(v.Threads) != 3 {
+		t.Fatalf("palette should hold only the order's threads, got %d", len(v.Threads))
+	}
+	// no colours from the shop: program colours stay
+	e2 := NewEditor(nil)
+	_ = e2.OpenFile(filepath.Join("..", "..", "samples", "Team crest.dst"))
+	before := e2.State().Sequence
+	_ = e2.ApplyOrderThreads("x", nil)
+	after := e2.State().Sequence
+	if len(before) != len(after) || before[0].Thread != after[0].Thread {
+		t.Fatal("no shop colours should keep the default sequence")
+	}
+}

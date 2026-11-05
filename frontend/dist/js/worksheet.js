@@ -1,6 +1,6 @@
 // Printable production worksheet.
 import { renderImage, renderSteps } from './render.js';
-import { esc, fmt, modal, toast } from './ui.js';
+import { esc, threadLabel, fmt, modal, toast } from './ui.js';
 import { S, selectBlock } from './main.js';
 import { openColorBlockPrint } from './print.js';
 
@@ -30,14 +30,14 @@ function sheetHTML() {
         <h3 style="margin:14px 0 6px">Needle sequence</h3>
         <table>
           <tr><th>Stop</th><th>Needle</th><th>Thread</th><th>Stitches</th></tr>
-          ${v.sequence.map(e => { const t = v.threads.find(x => x.name === e.thread); return `<tr><td>${e.step}</td><td>${e.needle}</td><td><span class="sw" style="background:${esc(t ? t.color : '#888')}"></span>${esc(e.thread)}</td><td>${fmt(e.stitches)}</td></tr>`; }).join('')}
+          ${v.sequence.map(e => { const t = v.threads.find(x => x.name === e.thread); return `<tr><td>${e.step}</td><td>${e.needle}</td><td><span class="sw" style="background:${esc(t ? t.color : '#888')}"></span>${esc(threadLabel(e))}${e.note ? ` — <b>${esc(e.note)}</b>` : ''}${t && t.brand ? `<div class="muted">${esc(t.brand)}</div>` : ''}</td><td>${fmt(e.stitches)}</td></tr>`; }).join('')}
         </table>
       </div>
     </div>
     <h3 style="margin:16px 0 6px">Colour blocks</h3>
     <table>
       <tr><th>#</th><th>Design</th><th>Thread</th><th>Needle</th><th>Stitches</th></tr>
-      ${blocks.map(({ d, b, t }) => `<tr><td>${b.index}</td><td>${esc(d.name)}</td><td><span class="sw" style="background:${esc(t ? t.color : '#888')}"></span>${esc(t ? t.name : '?')}</td><td>${t ? t.needle : ''}</td><td>${fmt(b.stitches)}</td></tr>`).join('')}
+      ${blocks.map(({ d, b, t }) => `<tr><td>${b.index}</td><td>${esc(d.name)}</td><td><span class="sw" style="background:${esc(t ? t.color : '#888')}"></span>${esc(threadLabel(t))}${t && t.note ? ` — <b>${esc(t.note)}</b>` : ''}</td><td>${t ? t.needle : ''}</td><td>${fmt(b.stitches)}</td></tr>`).join('')}
     </table>
     <h3 style="margin:16px 0 6px">Sew sequence</h3>
     ${stepsHTML(220, false)}
@@ -54,7 +54,7 @@ function stepsHTML(px, clickable) {
     return `<${clickable ? 'button' : 'div'} class="step" data-id="${esc(ob.item.id)}" data-bi="${ob.block.bi}">
       <img src="${url}" alt="Step ${step}">
       <div class="cap"><b>Step ${step}</b> · Needle ${esc(t.needle ?? '')}<br>
-        <span class="sw" style="background:${esc(t.color)}"></span>${esc(t.name)} · ${fmt(ob.block.count)} st<br>
+        <span class="sw" style="background:${esc(t.color)}"></span>${esc(threadLabel(t))}${t.note ? ` — <b>${esc(t.note)}</b>` : ''} · ${fmt(ob.block.count)} st<br>
         <span class="muted">${esc(names.get(ob.item.id) || '')}</span></div>
     </${clickable ? 'button' : 'div'}>`;
   }).join('')}</div>`;

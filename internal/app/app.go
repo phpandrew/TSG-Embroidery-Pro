@@ -57,6 +57,9 @@ type Prefs struct {
 	// (default: the Downloads folder).
 	WatchEnabled bool   `json:"watchEnabled"`
 	WatchDir     string `json:"watchDir"`
+	// Orders is the order-lookup connection (keys are stored separately,
+	// encrypted).
+	Orders *OrderPrefs `json:"orders,omitempty"`
 	// BrowseDir is the folder the design browser shows ("" = Downloads).
 	BrowseDir string `json:"browseDir"`
 	// Recent is the recently opened files, newest first.

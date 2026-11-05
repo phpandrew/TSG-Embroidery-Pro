@@ -74,6 +74,8 @@ type SeqEntry struct {
 	Step   int    `json:"step"`
 	Needle int    `json:"needle"`
 	Thread string `json:"thread"`
+	Code   string `json:"code,omitempty"`
+	Note   string `json:"note,omitempty"`
 	Stops  int    `json:"stitches"`
 }
 
@@ -170,7 +172,7 @@ func (e *Editor) State() View {
 				continue
 			}
 			step++
-			v.Sequence = append(v.Sequence, SeqEntry{Step: step, Needle: t.Needle, Thread: t.Name, Stops: n})
+			v.Sequence = append(v.Sequence, SeqEntry{Step: step, Needle: t.Needle, Thread: t.Name, Code: t.Code, Note: t.Note, Stops: n})
 			last = t.Needle
 		}
 	}

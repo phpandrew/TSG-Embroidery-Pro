@@ -1,6 +1,6 @@
 // "Color Block Analysis" print-off: one tile per colour stop, letter paper.
 import { renderAnalysis } from './render.js';
-import { esc, fmt, modal, toast } from './ui.js';
+import { esc, threadLabel, fmt, modal, toast } from './ui.js';
 import { S } from './main.js';
 
 const LAYOUTS = {
@@ -79,7 +79,7 @@ function pagesHTML(opts) {
         const label = step === 1 ? `NEEDLE ${t.needle ?? ''} - 1` : prev && prev.needle === t.needle ? `CONT. - ${ob.start + 1}` : `STOP - ${ob.start + 1}`;
         return `<div class="cba-tile">
           <div class="cba-top"><span class="cba-sw" style="background:${esc(t.color)}"></span>
-            <span class="cba-lbl"><b>${esc(label)}</b><br>${step}. Needle ${esc(t.needle ?? '')} · ${esc(t.name)} · ${fmt(ob.block.count)} st</span></div>
+            <span class="cba-lbl"><b>${esc(label)}</b><br>${step}. Needle ${esc(t.needle ?? '')} · ${esc(threadLabel(t))} · ${fmt(ob.block.count)} st${t.note ? `<br><b class="cba-note">${esc(t.note)}</b>` : ''}</span></div>
           <img src="${url}" alt="Stop ${step}">
         </div>`;
       }).join('')}

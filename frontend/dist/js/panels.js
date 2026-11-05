@@ -1,7 +1,7 @@
 // Right-hand panel: Properties (Design tab), Lettering editor, Production settings.
 import { api } from './api.js';
 import { icon } from './icons.js';
-import { esc, fmt, mm, numField, toast } from './ui.js';
+import { esc, threadLabel, fmt, mm, numField, toast } from './ui.js';
 import { S, run, runLive, selected, setTab, renderPropsPanel, redraw, actions } from './main.js';
 import { openFontGallery, fontOptions, loadFavourites } from './fontgallery.js';
 
@@ -145,7 +145,7 @@ function needleTable(root) {
   const rows = [];
   v.designs.forEach(d => d.blocks.forEach((b, bi) => rows.push({ d, b, bi })));
   if (!rows.length) { s.insertAdjacentHTML('beforeend', '<p class="hint">No colour blocks yet.</p>'); return; }
-  const opts = v.threads.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+  const opts = v.threads.map(t => `<option value="${esc(t.id)}">${esc(threadLabel(t))}</option>`).join('');
   s.insertAdjacentHTML('beforeend', `<table class="tbl"><thead><tr><th style="width:62px">Block</th><th>Thread</th><th style="width:84px">Needle</th></tr></thead><tbody>${rows.map(({ d, b, bi }) => {
     const t = tmap.get(b.thread) || { color: '#888', needle: 0 };
     return `<tr data-d="${d.id}" data-b="${bi}" data-t="${t.id}"><td>${b.index}</td>
@@ -189,7 +189,7 @@ function threadPanel(root, d) {
   s.appendChild(add);
   if (d) {
     const bs = section(root, `Blocks in ${d.name}`);
-    const opts = v.threads.map(t => `<option value="${t.id}">${esc(t.name)} — needle ${t.needle}</option>`).join('');
+    const opts = v.threads.map(t => `<option value="${esc(t.id)}">${esc(threadLabel(t))} — needle ${t.needle}</option>`).join('');
     d.blocks.forEach((b, i) => {
       const row = document.createElement('div');
       row.className = 'form';
@@ -228,7 +228,7 @@ function letteringPanel(root) {
   const v = S.view;
   const s = section(root, editing ? `Edit “${d.name}”` : 'New lettering');
   const fontOpts = fontOptions(v.fonts, spec.font || 'Block', !!S.showWinFonts);
-  const thrOpts = v.threads.map(t => `<option value="${t.id}">${esc(t.name)} — needle ${t.needle}</option>`).join('');
+  const thrOpts = v.threads.map(t => `<option value="${esc(t.id)}">${esc(threadLabel(t))} — needle ${t.needle}</option>`).join('');
   s.insertAdjacentHTML('beforeend', `<div class="form">
     <label class="f">Text <span class="muted">(Enter for a new line)</span><textarea class="inp" id="lt-text" rows="2" placeholder="e.g. ANDREW" maxlength="400">${esc(spec.text)}</textarea></label>
     <div class="two">
@@ -426,7 +426,7 @@ function productionPanel(root) {
   const q = section(root, 'Needle sequence');
   q.insertAdjacentHTML('beforeend', v.sequence.length ? `<table class="tbl seq-table"><thead><tr><th>Stop</th><th>Needle</th><th>Thread</th><th>Stitches</th></tr></thead><tbody>${v.sequence.map(e => {
     const t = v.threads.find(t => t.name === e.thread);
-    return `<tr><td>${e.step}</td><td>${e.needle}</td><td><span class="sw" style="background:${esc(t ? t.color : '#888')}"></span>${esc(e.thread)}</td><td>${fmt(e.stitches)}</td></tr>`;
+    return `<tr><td>${e.step}</td><td>${e.needle}</td><td><span class="sw" style="background:${esc(t ? t.color : '#888')}"></span>${esc(threadLabel(e))}${e.note ? ` <span class="th-note">${esc(e.note)}</span>` : ''}</td><td>${fmt(e.stitches)}</td></tr>`;
   }).join('')}</tbody></table>` : '<p class="hint">Nothing to sew yet.</p>');
   const act = section(root, '');
   act.innerHTML = `<div class="btn-row"><button class="btn btn-primary btn-sm" data-a="export">${icon('export', 16)} Export DST</button><button class="btn btn-ghost btn-sm" data-a="worksheet">${icon('worksheet', 16)} Worksheet</button><button class="btn btn-ghost btn-sm" data-a="save">Save project</button></div>`;
